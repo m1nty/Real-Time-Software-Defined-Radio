@@ -1,3 +1,4 @@
+
 #
 # Comp Eng 3DY4 (Computer Systems Integration Project)
 #
@@ -10,56 +11,69 @@
 import numpy as np
 import math, cmath
 
+#**************************PROVIDED ONE IN LAB**************************
+#def fmDemodArctan(I, Q, prev_phase = 0.0):
+##
+## the default prev_phase phase is assumed to be zero, however
+## take note in block processing it must be explicitly controlled
 #
-# you should use the demodulator based on arctan given below as a reference
+#	# empty vector to store the demodulated samples
+#	fm_demod = np.empty(len(I))
 #
-# in order to implement your OWN FM demodulator without the arctan function,
-# a very good and to-the-point description is given by Richard Lyons at:
+#	# iterate through each of the I and Q pairs
+#	for k in range(len(I)):
 #
-# https://www.embedded.com/dsp-tricks-frequency-demodulation-algorithms/
+#		# use the atan2 function (four quadrant version) to detect angle between
+#		# the imaginary part (quadrature Q) and the real part (in-phase I)
+#		current_phase = math.atan2(Q[k], I[k])
 #
-# the demodulator boils down to implementing equation (13-117) from above, where
-# the derivatives are nothing else but differences between consecutive samples
+#		# we need to unwrap the angle obtained in radians through arctan2
+#		# to deal with the case when the change between consecutive angles
+#		# is greater than Pi radians (unwrap brings it back between -Pi to Pi)
+#		[prev_phase, current_phase] = np.unwrap([prev_phase, current_phase])
 #
-# needless to say, you should not jump directly to equation (13-117)
-# rather try first to understand the entire thought process based on calculus
-# identities, like derivative of the arctan function or derivatives of ratios
+#		# take the derivative of the phase
+#		fm_demod[k] = current_phase - prev_phase
 #
+#		# save the state of the current phase
+#		# to compute the next derivative
+#		prev_phase = current_phase
+#
+#	# return both the demodulated samples as well as the last phase
+#	# (the last phase is needed to enable continuity for block processing)
+#	return fm_demod, prev_phase
 
-#
-# use the four quadrant arctan function for phase detect between a pair of
-# IQ samples; then unwrap the phase and take its derivative to demodulate
-#
-def fmDemodArctan(I, Q, prev_phase = 0.0):
-#
-# the default prev_phase phase is assumed to be zero, however
-# take note in block processing it must be explicitly controlled
 
-	# empty vector to store the demodulated samples
-	fm_demod = np.empty(len(I))
+#**************************Tryna get the speed arctan working**************************
+# TODO may need to adjust the argument prev phase to be more appropriate since we only calculate derivative 
+# of Q and I, so maybe those prev values should be returned and be in the argument
+def fmDemodArctan(I, Q, prev_phase = (0.0,0,0)):
+    # Creates a list for the demodulated values
+    fm_demod = np.empty(len(I))
 
-	# iterate through each of the I and Q pairs
-	for k in range(len(I)):
+    #For now just set these prev I and Q values to 0.0, 
+    prev_I = prev_phase[0]
+    prev_Q = prev_phase[1]
 
-		# use the atan2 function (four quadrant version) to detect angle between
-		# the imaginary part (quadrature Q) and the real part (in-phase I)
-		current_phase = math.atan2(Q[k], I[k])
+    # iterate through each of the I and Q pairs
+    for k in range(len(I)):
+        # Conditionals in place in order to make sure that no division by zero takes place  
+        if (I[k])**2 + (Q[k])**2 ==0:
+            #In the case where division by zero might take place, just set output to zero
+            fm_demod[k] = 0.0
+        else:
+            #If denominator will not be zero, then use the fast equation
+            fm_demod[k] = (I[k] * (Q[k]-prev_Q) - Q[k] * (I[k]-prev_I)) / ((I[k])**2 + (Q[k])**2) 
 
-		# we need to unwrap the angle obtained in radians through arctan2
-		# to deal with the case when the change between consecutive angles
-		# is greater than Pi radians (unwrap brings it back between -Pi to Pi)
-		[prev_phase, current_phase] = np.unwrap([prev_phase, current_phase])
+        # Store previous I and Q values in order to calculate the derivate in the next iteration of the loop 
+        prev_I = I[k]
+        prev_Q = Q[k] 
+        #store I and Q here in order to be used in block processing when its returned
+        prev_phase = (prev_I, prev_Q) 
 
-		# take the derivative of the phase
-		fm_demod[k] = current_phase - prev_phase
-
-		# save the state of the current phase
-		# to compute the next derivative
-		prev_phase = current_phase
-
-	# return both the demodulated samples as well as the last phase
-	# (the last phase is needed to enable continuity for block processing)
-	return fm_demod, prev_phase
+    # return both the demodulated samples as well as the last phase
+    # (the last phase is needed to enable continuity for block processing)
+    return fm_demod, prev_phase
 
 # custom function for DFT that can be used by the PSD estimate
 def DFT(x):
@@ -157,6 +171,43 @@ def estimatePSD(samples, NFFT, Fs):
 
 	# the frequency vector and PSD estimate
 	return freq, psd_est
+
+#Created directly from pseudo code
+#May want to change to slighty more accurate name
+def my_filterImpulseResponse(Fc, Fs, N_taps):
+    h = np.zeros(N_taps)
+    norm_cutoff = Fc/(Fs/2)
+    for i in range(N_taps):
+        if i == (N_taps-1)/2:
+            h[i] = norm_cutoff
+        else: 
+            h[i] = norm_cutoff*((math.sin(math.pi*norm_cutoff*((i-(N_taps-1)/2))))/(math.pi*norm_cutoff*(i-((N_taps-1)/2))))
+        #End of if statement
+        h[i] = h[i]*(math.sin(math.pi*i/N_taps))**2
+    return h
+
+#Convolotion function for filtering
+def my_convoloution(x, h, N_taps, my_zi=np.zeros(10)):
+    #Create an array with only zeros
+    y = np.zeros(len(x))
+    #Loop through each sample to calculate its value 
+    for n in range(len(y)):
+        y[n] = 0
+        count = 0 
+        for k in range(len(h)):
+            #Standard convoloution equation
+            if n-k >= 0 and n-k < len(x): 
+                y[n] += x[n-k] * h[k]
+            #Standard convoloution equation
+            #If k > n, use the samples from the previous block to calculate the values
+            else:
+                y[n] += my_zi[len(my_zi)-1-count] * h[k]
+                count += 1  
+    #Takes the last N_tap-1 samples and returns them as zi so that they can be used when 
+    #calculating the next block that will be processed. 
+    my_zi = x[-(len(my_zi)): ]
+    return y, my_zi 
+
 
 if __name__ == "__main__":
 

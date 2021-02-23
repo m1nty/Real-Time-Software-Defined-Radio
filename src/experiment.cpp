@@ -34,14 +34,15 @@ int main()
 	// Fourier transform - there is no FFT implementation ... yet
 	// unless you wish to wait for a very long time, keep NFFT at 1024 or below
 	std::vector<float> slice_data = \
-		std::vector<float>(bin_data.begin(), bin_data.begin() + NFFT);
+	std::vector<float>(bin_data.begin(), bin_data.begin() + NFFT);
 	// note: make sure that binary data vector is big enough to take the slice
 
 	// declare a vector of complex values for DFT
-  std::vector<std::complex<float>> Xf;
+  	std::vector<std::complex<float>> Xf;
 	// ... in-lab ...
 	// compute the Fourier transform
 	// the function is already provided in fourier.cpp
+	DFT(slice_data, Xf);	
 
 	// compute the magnitude of each frequency bin
 	// note: we are concerned only with the magnitude of the frequency bin
@@ -50,18 +51,18 @@ int main()
 	// ... in-lab ...
 	// compute the magnitude of each frequency bin
 	// the function is already provided in fourier.cpp
+	computeVectorMagnitude(Xf, Xmag);
 
 	// log the frequency magnitude vector
 	vector_index.clear();
 	genIndexVector(vector_index, Xmag.size());
 	logVector("demod_freq", vector_index, Xmag); // log only positive freq
 
-	// for your take-home exercise - repeat the above after implementing
-	// your OWN function for PSD based on the Python code that has been provided
-	// note the estimate PSD function should use the entire block of "bin_data"
-	//
-	// ... complete as part of the take-home ...
-	//
+	//Added additional vectors to store data
+	std::vector<float> psd_est, freq;
+	int Fs = (2400000/10)/1000; //Divide by 1000 to make it easier to see
+	estimatePSD(bin_data, NFFT, Fs, freq, psd_est);
+	logVector("demod_psd", freq, psd_est); 
 
 	// if you wish to write some binary files, see below example
 	// const std::string out_fname = "../data/outdata.bin";
