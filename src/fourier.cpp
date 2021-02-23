@@ -9,6 +9,7 @@ Ontario, Canada
 // source code for Fourier-family of functions
 #include "dy4.h"
 #include "fourier.h"
+#include "filter.h"
 
 // just DFT function (no FFT yet)
 void DFT(const std::vector<float> &x, std::vector<std::complex<float>> &Xf) {
@@ -107,3 +108,4 @@ void estimatePSD(const std::vector<float> &samples,const int &NFFT_1, const int 
 		psd_est[n] = psd_est[n]/static_cast<float>(no_segments); 
 	}
 }
+

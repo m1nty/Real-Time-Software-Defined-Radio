@@ -67,3 +67,53 @@ void convolveFIR(std::vector<float> &y, const std::vector<float> &x, const std::
 		zi[i] = x[x.size()-zi.size()-1+i]; 
 	}
 }
+
+//Place for band pass filter 
+
+
+//Function for block processing
+void blockProcessing(std::vector<float> &y1,std::vector<float> &y2,  const std::vector<float> &audio_right, const std::vector<float> &audio_left,unsigned short int num_taps, const float &Fc, const float &Fs, const int &block_size)
+{
+	//Defining needed variables
+	std::vector<float> zi_right, zi_left,h_right,h_left, x_temp1, x_temp2, y_temp1, y_temp2;
+	int position = 0; 
+	//Making sure require vectors for convoloution are set up 
+	zi_right.resize(num_taps-1, 0.0);
+	zi_left.resize(num_taps-1, 0.0);
+	x_temp1.resize(block_size, 0.0);
+	x_temp2.resize(block_size, 0.0);
+	//Performs impulse reponse to get h values
+	impulseResponseLPF(Fs, Fc, num_taps, h_right);
+	impulseResponseLPF(Fs, Fc, num_taps, h_left);
+	y1.resize(audio_right.size()+h_right.size()-1, 0.0);
+        y2.resize(audio_left.size()+h_left.size()-1, 0.0);
+	//Keep going through each block and perform convoloution
+	while(true)
+	{
+		//First need for loop to assign values to x	
+		for(auto i = 0; i < block_size; i++) 
+		{
+			x_temp1[i] = audio_right[position+i];
+			x_temp2[i] = audio_left[position+i];
+		}
+		//Does the convoloution
+		//printRealVector(zi_right);
+		convolveFIR(y_temp1,x_temp1,h_right,zi_right);	
+		convolveFIR(y_temp2,x_temp2,h_left,zi_left);	
+		//Gets the y values 
+		for(auto j = 0; j < y_temp1.size(); j++)
+		{
+			y1[position+j] = y_temp1[j];
+			y2[position+j] = y_temp2[j];
+		}
+		//Resets all the values with zeros
+		std::fill(y_temp1.begin(), y_temp1.end(), 0.0);
+		std::fill(y_temp2.begin(), y_temp2.end(), 0.0);
+		//Iterates the positon  
+		position = position + block_size; 
+		if (position > audio_right.size())
+		{
+			break;
+		}
+	}
+}
