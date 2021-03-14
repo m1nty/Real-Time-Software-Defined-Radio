@@ -14,8 +14,12 @@ Ontario, Canada
 #include <vector>
 
 // declaration of a function prototypes
-void impulseResponseLPF(float, float, unsigned short int, std::vector<float> &);
-void convolveFIR(std::vector<float> &, const std::vector<float> &, const std::vector<float> &);
-void blockProcessing(std::vector<float> &y1,std::vector<float> &y2,  const std::vector<float> &audio_right, const std::vector<float> &audio_left,unsigned short int num_taps, const float &Fc, const float &Fs, const int &block_size);
+void impulseResponseLPF(float Fs, float Fc, unsigned short int num_taps, std::vector<float> &h);
 
+void convolveFIR(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi);
+
+
+void convolveWithDecim(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num);
+
+void convolveWithDecimIQ(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi,std::vector<float> &y1, const std::vector<float> &x1, std::vector<float> &zi1, const int &decim_num);
 #endif // DY4_FILTER_H
