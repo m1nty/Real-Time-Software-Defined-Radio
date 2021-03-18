@@ -93,11 +93,15 @@ if __name__ == "__main__":
 	bandPassCoeff = signal.firwin(rf_taps, [18.5e3, 19.5e3], window=('hann'), pass_zero="bandpass")
     bpf_recovery = signal.lfilter(rf_coeff, 1.0, fm_demod)
     print("Completed Recovery BPF Convolution")
+
+    # PSD after extracting Pilot Tone
+    ax1.psd(bpf_recovery, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax1.set_ylabel('PSD (db/Hz)')
+    ax1.set_title('Extracted Stereo Pilot Tone')
     
+    #PLL/NCO
     #def fmPll(pllIn, freq, Fs, ncoScale = 1.0, phaseAdjust = 0.0, normBandwidth = 0.01):
-    freq = 19e3
-    Fs = 2400e3
-    recovery_pll = fmPll(bpf_recovery, freq, Fs)
+    recovery_pll = fmPll(bpf_recovery, 19e3, 2400e3)
 
     
     #-----------------------STEREO CHANNEL EXTRACTION-------------------------------
@@ -105,18 +109,27 @@ if __name__ == "__main__":
     bpf_extraction = signal.lfilter(bandPassCoeff, 1.0, fm_demod)
     print("Completed Extraction BPF Convolution")
 
-    # PSD after extracting stereo channel
+    # PSD after extracting Stereo Channel
     ax1.psd(bpf_extraction, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
     ax1.set_ylabel('PSD (db/Hz)')
-    ax1.set_title('Extracted Stereo')
+    ax1.set_title('Extracted Stereo Channel')
 
+    #-----------------------STEREO PROCESSING-------------------------------
     #Mixing
-    mixed = []
-    for x in range(len(bpf_recovery)):
-        mixed = bpf_recovery[x]*bpf_extraction[x]
+    for x in range(len(recovery_pll)):
+        mixed = recovery_pll[x]*bpf_extraction[x]
     #LPF
-    coeff = signal.firwin(rf_taps, 48e3, window=('hann'))
-    stereo_filt = signal.lfilter(coeff, 1.0, mixed)  
+    stereo_coeff = signal.firwin(rf_taps, 16e3, window=('hann'))
+    stereo_filt = signal.lfilter(stereo_coeff, 1.0, mixed)  
+    #Decimation
+    stereo_data = stereo_filt[::5] 
+
+    # PSD after extracting stereo channel
+    ax1.psd(stereo_data, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax1.set_ylabel('PSD (db/Hz)')
+    ax1.set_title('Extracted Stereo')
+    
+
     
 
     
