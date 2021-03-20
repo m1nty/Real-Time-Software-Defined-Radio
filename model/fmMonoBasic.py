@@ -164,8 +164,6 @@ if __name__ == "__main__":
 
     #Combiner
     combined_l, combined_r = audio_data, audio_data
-    print(type(audio_data))
-    print(type(stereo_data))
 
     for i in range(len(audio_data)):
         combined_l[i] = (audio_data[i]+stereo_data[i])/2
