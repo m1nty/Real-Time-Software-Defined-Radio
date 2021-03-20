@@ -163,11 +163,13 @@ if __name__ == "__main__":
     stereo_data = stereo_filt[::5] 
 
     #Combiner
-    combined_l, combined_r = np.shape(audio_data),np.shape(audio_data)
+    combined_l, combined_r = audio_data, audio_data
+    print(type(audio_data))
+    print(type(stereo_data))
 
     for i in range(len(audio_data)):
-        combined_l = (audio_data[i]+stereo_data[i])/2
-        combined_r = (audio_data[i]-stereo_data[i])/2
+        combined_l[i] = (audio_data[i]+stereo_data[i])/2
+        combined_r[i] = (audio_data[i]-stereo_data[i])/2
 
 
     fig, (ax0,ax1,ax2,ax3,ax4) = plt.subplots(nrows=5)
@@ -193,6 +195,19 @@ if __name__ == "__main__":
     ax4.psd(stereo_data, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
     ax4.set_ylabel('PSD (db/Hz)')
     ax4.set_title('Mono Audio vs Stereo Audio')
+
+    fig, (ax5,ax6) = plt.subplots(nrows=2)
+    fig.subplots_adjust(hspace = 1.0)
+    ax5.psd(combined_l, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax5.set_ylabel('PSD (db/Hz)')
+    ax5.set_title('Left Audio Channel')
+
+    ax6.psd(combined_r, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax6.set_ylabel('PSD (db/Hz)')
+    ax6.set_title('Right Audio Channel')
+
+    # combined_2D = np.array( audio_data.tolist(), audio_data.tolist())
+    # wavfile.write("../data/fmStereo.wav", int(audio_Fs), combined_2D)
 
     plt.show()
 
