@@ -37,30 +37,30 @@ def fmPll(pllIn, freq, Fs, \
 
     """
 
-# scale factors for proportional/integrator terms
-# these scale factors were derived assuming the following:
-# damping factor of 0.707 (1 over square root of 2)
-# there is no oscillator gain and no phase detector gain
+    # scale factors for proportional/integrator terms
+    # these scale factors were derived assuming the following:
+    # damping factor of 0.707 (1 over square root of 2)
+    # there is no oscillator gain and no phase detector gain
     Cp = 2.666
     Ci = 3.555
 
-# gain for the proportional term
+    # gain for the proportional term
     Kp = (normBandwidth)*Cp
-# gain for the integrator term
+    # gain for the integrator term
     Ki = (normBandwidth*normBandwidth)*Ci
 
-# output array for the NCO
+    # output array for the NCO
     ncoOut = np.empty(len(pllIn)+1)
     ncoOutQ = np.empty(len(pllIn)+1)
 
-# initialize internal state
-    integrator = 0.0
+    # initialize internal state
+    integrator = 0
     phaseEst = 0.0
     feedbackI = 1.0
     feedbackQ = 0.0
     ncoOut[0] = 1.0
     trigOffset = 0
-# note: state saving will be needed for block processing
+    # note: state saving will be needed for block processing
 
     for k in range(len(pllIn)):
         # phase detector
@@ -84,10 +84,10 @@ def fmPll(pllIn, freq, Fs, \
         #Quadrature compoent
         ncoOutQ[k+1] = math.sin(trigArg*ncoScale + phaseAdjust)
 
-# for stereo only the in-phase NCO component should be returned
-# for block processing you should also return the state
+    # for stereo only the in-phase NCO component should be returned
+    # for block processing you should also return the state
     return ncoOut, ncoOutQ
-# for RDS add also the quadrature NCO component to the output
+    # for RDS add also the quadrature NCO component to the output
 
 if __name__ == "__main__":
 

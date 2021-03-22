@@ -1,4 +1,3 @@
-
 #
 # Comp Eng 3DY4 (Computer Systems Integration Project)
 #
@@ -78,13 +77,17 @@ if __name__ == "__main__":
     # we use a dummy because there is no state for this single-pass model
 
     # set up drawing
-    fig, (ax0, ax1, ax2) = plt.subplots(nrows=3)
+    fig, (ax0, ax1, ax2,ax4) = plt.subplots(nrows=4)
     fig.subplots_adjust(hspace = 1.0)
 
     # PSD after FM demodulation
     ax0.psd(fm_demod, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
     ax0.set_ylabel('PSD (db/Hz)')
     ax0.set_title('Demodulated FM')
+
+    # ****************************************************************** 
+    # -----------------------------RDS----------------------------------
+    # *****************************************************************
 
     # ------------------------Extraction--------------------------------
     #BPF filter to extract inital data
@@ -119,15 +122,8 @@ if __name__ == "__main__":
     #Know it it centered arounf 
     freq_centered = 114000
     #TODO mess with these values to see what works best 
-    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = 0.0, normBandwidth = 0.01)
-
-    ax1.psd(pre_Pll_rds, NFFT=512, Fs=(square_Fs/rf_decim)/1e3)
-    ax1.set_ylabel('PSD (db/Hz)')
-    ax1.set_title('Extracted Mono')
-
-    ax2.psd(post_Pll, NFFT=512, Fs=(square_Fs/rf_decim)/1e3)
-    ax2.set_ylabel('PSD (db/Hz)')
-    ax2.set_title('Extracted Mono')
+    # note, we also need the Q component to properly tune the PLL using constalation diagrams 
+    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/2, normBandwidth = 0.01)
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
@@ -146,27 +142,43 @@ if __name__ == "__main__":
     lpf_filt_rds_Q = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds_Q)
 
     #Rational Resampler
-    # to get 240000 to 57000 need to multiply by 80 / 19
+    # to get 240000 to 57000 need to multiply by 19 / 80
     upsample_rds = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
     upsample_rds_Q = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
     #Upsamples by 19
     for i in range (len(lpf_filt_rds)):
         upsample_rds[i*19] = lpf_filt_rds[i]
         upsample_rds_Q[i*19] = lpf_filt_rds_Q[i]
+
     #Downsample by 19 in order to to get a frequency of 57kHz  
     resample_rds = upsample_rds[::80]
     resample_rds_Q = upsample_rds_Q[::80]
+    #After this both signals should be 57kHz
 
     #Root raised cosine filter
+    #Black box in order to get the coefficents
     rrc_Fs = square_Fs * (19/80)
     rrc_taps = 151 
     rrc_coeff = impulseResponseRootRaisedCosine(rrc_Fs, rrc_taps)
     #I Component
     rrc_rds = signal.lfilter(rrc_coeff, 1.0, resample_rds)
     #Q Component
-    rrc_rds = signal.lfilter(rrc_coeff, 1.0, resample_rds_Q)
+    rrc_rds_Q = signal.lfilter(rrc_coeff, 1.0, resample_rds_Q)
 
     #Clock and data recovery
+    #Need to sample the shit
+    #We assume 24 bits per symbol, look at each 24 samples to determine what the symbol is
+    sample_per_symbol = 24 
+    symbols_I = np.zeros(int(len(rrc_rds)/sample_per_symbol)) 
+    symbols_Q = np.zeros(int(len(rrc_rds_Q)/sample_per_symbol)) 
+    position = 0
+
+    #Check each 24 samples to try and identify the symbols
+    #TODO is 24 samples per symbol the H or the 1???
+    symbols_I = rrc_rds[::24]
+    symbols_Q = rrc_rds_Q[::24]
+
+    #Plot scatter plots in order to tune the PLL 
 
     # ---------------------RDS Data Processing--------------------------
     #Deconding 
@@ -174,29 +186,34 @@ if __name__ == "__main__":
     #Frame Sync and Error detection 
 
     #RDS Application Layer
-    
-
-
-    # PSD after extracting mono audio
-#    ax1.psd(audio_filt, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
-#    ax1.set_ylabel('PSD (db/Hz)')
-#    ax1.set_title('Extracted Mono')
-#
-#    # downsample audio data
-#    audio_data = audio_filt[::audio_decim] 
-#
-#    # PSD after decimating mono audio
-#    ax2.psd(audio_data, NFFT=512, Fs=audio_Fs/1e3)
-#    ax2.set_ylabel('PSD (db/Hz)')
-#    ax2.set_title('Mono Audio')
 
     # save PSD plots
-    fig.savefig("../data/fmMonoBasic.png")
+    ax1.psd(pre_Pll_rds, NFFT=512, Fs=(square_Fs/rf_decim)/1e3)
+    ax1.set_ylabel('PSD (db/Hz)')
+    ax1.set_title('Pre Pll')
+
+    ax2.psd(post_Pll, NFFT=512, Fs=(square_Fs/rf_decim)/1e3)
+    ax2.set_ylabel('PSD (db/Hz)')
+    ax2.set_title('Post Pll')
+
+    ax4.psd(rrc_rds, NFFT=512, Fs=(rrc_Fs/1e3))
+    ax4.set_ylabel('PSD (db/Hz)')
+    ax4.set_title('Post RRC Filter')
+
+    fig.savefig("../data/fmRdsBasic.png")
     plt.show()
 
-    plt.plot(10*pre_Pll_rds[10000:10100], c='b') 
-    plt.plot(post_Pll[10000:10100], c = 'r') 
+    #Plot scatter plots in order to tune the PLL 
+    fig, (p_adjust1) = plt.subplots(nrows=1)
+    fig.subplots_adjust(hspace = 1.0)
+    p_adjust1.scatter(symbols_I, symbols_Q, s=10)
     plt.show()
+
+    #plt.plot(10*pre_Pll_rds[10180:10200], c='b') 
+    #plt.plot(post_Pll[10180:10200], c = 'r') 
+    #plt.show()
+    #plt.plot(rrc_rds, c = 'r') 
+    #plt.show()
     # write audio data to file (assumes audio_data samples are -1 to +1)
     #wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
     # during FM transmission audio samples in the mono channel will contain
