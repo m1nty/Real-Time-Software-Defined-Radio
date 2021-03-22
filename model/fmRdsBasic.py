@@ -39,7 +39,7 @@ rf_taps = 151
 rf_decim = 10
 
 # audio sampling rate (we assume audio will be at 48 KSamples/sec)
-audio_Fs = 48e3
+audio_Fs = 48000
 
 # complete your own settings for the mono channel
 # (cutoff freq, audio taps, decimation rate, ...)
@@ -54,6 +54,7 @@ if __name__ == "__main__":
     in_fname = "../data/test4.raw"
     iq_data = np.fromfile(in_fname, dtype='float32')
     print("Read raw RF data from \"" + in_fname + "\" in float32 format")
+    iq_data=iq_data[:5000000]
 
     # Additional params needed for our own functions
     i_pre = np.zeros(rf_taps-1) 
@@ -123,7 +124,7 @@ if __name__ == "__main__":
     freq_centered = 114000
     #TODO mess with these values to see what works best 
     # note, we also need the Q component to properly tune the PLL using constalation diagrams 
-    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/2, normBandwidth = 0.01)
+    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/1.5, normBandwidth = 0.01)
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
@@ -151,13 +152,13 @@ if __name__ == "__main__":
         upsample_rds_Q[i*19] = lpf_filt_rds_Q[i]
 
     #Downsample by 19 in order to to get a frequency of 57kHz  
-    resample_rds = upsample_rds[::80]
-    resample_rds_Q = upsample_rds_Q[::80]
+    resample_rds = upsample_rds[::80]*19
+    resample_rds_Q = upsample_rds_Q[::80]*19
     #After this both signals should be 57kHz
 
     #Root raised cosine filter
     #Black box in order to get the coefficents
-    rrc_Fs = square_Fs * (19/80)
+    rrc_Fs = 57000
     rrc_taps = 151 
     rrc_coeff = impulseResponseRootRaisedCosine(rrc_Fs, rrc_taps)
     #I Component
@@ -167,12 +168,6 @@ if __name__ == "__main__":
 
     #Clock and data recovery
     #Need to sample the shit
-    #We assume 24 bits per symbol, look at each 24 samples to determine what the symbol is
-    sample_per_symbol = 24 
-    symbols_I = np.zeros(int(len(rrc_rds)/sample_per_symbol)) 
-    symbols_Q = np.zeros(int(len(rrc_rds_Q)/sample_per_symbol)) 
-    position = 0
-
     #Check each 24 samples to try and identify the symbols
     #TODO is 24 samples per symbol the H or the 1???
     symbols_I = rrc_rds[::24]
@@ -206,7 +201,7 @@ if __name__ == "__main__":
     #Plot scatter plots in order to tune the PLL 
     fig, (p_adjust1) = plt.subplots(nrows=1)
     fig.subplots_adjust(hspace = 1.0)
-    p_adjust1.scatter(symbols_I, symbols_Q, s=10)
+    p_adjust1.scatter(symbols_Q, symbols_I, s=10)
     plt.show()
 
     #plt.plot(10*pre_Pll_rds[10180:10200], c='b') 
