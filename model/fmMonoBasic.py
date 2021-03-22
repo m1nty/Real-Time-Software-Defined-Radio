@@ -67,11 +67,11 @@ if __name__ == "__main__":
     rf_coeff = signal.firwin(rf_taps, rf_Fc/(rf_Fs/2), window=('hann'))
 
     # filter to extract the FM channel (I samples are even, Q samples are odd)
-    # i_filt = signal.lfilter(rf_coeff, 1.0, iq_data[0::2])
-    # q_filt = signal.lfilter(rf_coeff, 1.0, iq_data[1::2])
+    i_filt = signal.lfilter(rf_coeff, 1.0, iq_data[0::2])
+    q_filt = signal.lfilter(rf_coeff, 1.0, iq_data[1::2])
 
-    i_filt = signal.lfilter(rf_coeff, 1.0, iq_data[0:block_size:2])
-    q_filt = signal.lfilter(rf_coeff, 1.0, iq_data[1:block_size:2])
+    # i_filt = signal.lfilter(rf_coeff, 1.0, iq_data[0:block_size:2])
+    # q_filt = signal.lfilter(rf_coeff, 1.0, iq_data[1:block_size:2])
 
     print("Done all coeff/iq")
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     fig.savefig("../data/fmMonoBasic.png")
     # write audio data to file (assumes audio_data samples are -1 to +1)
 
-    # wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
+    wavfile.write("../data/fmMonoBasic.wav", int(48e3), np.int16((audio_data/2)*32767))
 
     # during FM transmission audio samples in the mono channel will contain
     # the sum of the left and right audio channels; hence, we first
@@ -173,42 +173,45 @@ if __name__ == "__main__":
     fig, (ax0,ax1,ax2,ax3,ax4) = plt.subplots(nrows=5)
     fig.subplots_adjust(hspace = 1.0)
 
-    ax0.psd(bpf_recovery, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax0.psd(bpf_recovery, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax0.set_ylabel('PSD (db/Hz)')
     ax0.set_title('Extracted Stereo Pilot Tone')
 
-    ax1.psd(bpf_extraction, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax1.psd(bpf_extraction, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax1.set_ylabel('PSD (db/Hz)')
     ax1.set_title('Extracted Stereo Channel')
 
-    ax2.psd(mixed, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax2.psd(mixed, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax2.set_ylabel('PSD (db/Hz)')
     ax2.set_title('cos(α - β) and cos(α + β) Components')
 
-    ax3.psd(stereo_filt, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax3.psd(stereo_filt, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax3.set_ylabel('PSD (db/Hz)')
     ax3.set_title('LPF cos(α - β) Extraction')
 
-    ax4.psd(audio_data, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
-    ax4.psd(stereo_data, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax4.psd(audio_data, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
+    ax4.psd(stereo_data, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax4.set_ylabel('PSD (db/Hz)')
     ax4.set_title('Mono Audio vs Stereo Audio')
 
     fig, (ax5,ax6) = plt.subplots(nrows=2)
     fig.subplots_adjust(hspace = 1.0)
-    ax5.psd(combined_l, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax5.psd(combined_l, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax5.set_ylabel('PSD (db/Hz)')
     ax5.set_title('Left Audio Channel')
 
-    ax6.psd(combined_r, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+    ax6.psd(combined_r, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
     ax6.set_ylabel('PSD (db/Hz)')
     ax6.set_title('Right Audio Channel')
 
-    # combined_2D = np.array( audio_data.tolist(), audio_data.tolist())
-    # wavfile.write("../data/fmStereo.wav", int(audio_Fs), combined_2D)
+    combined_l = np.int16((combined_l)*32767)
+    combined_r = np.int16((combined_r)*32767)
+    stereo = np.array([combined_l, combined_r]).transpose()
+
+    print("Writing Wav File")
+    wavfile.write("../data/fmStereo.wav", int(48e3), stereo)
 
     plt.show()
 
     # # save PSD plots
     # fig.savefig("../data/fmStereoBasic.png")
-    # plt.show()
