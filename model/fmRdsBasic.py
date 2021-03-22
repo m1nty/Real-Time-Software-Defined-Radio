@@ -19,7 +19,7 @@ from fmSupportLib import fmDemodArctan
 from fmSupportLib import my_convoloution
 from fmSupportLib import my_filterImpulseResponse
 from fmPll import fmPll
-
+from fmRRC import impulseResponseRootRaisedCosine
 # the radio-frequency (RF) sampling rate
 # this sampling rate is either configured on RF hardware
 # or documented when a raw file with IQ samples is provided
@@ -109,8 +109,8 @@ if __name__ == "__main__":
     #BPF
     #Now that values
     squared_lower_freq = 113500
-    squared_higher_freq = 113500
-    square_Fs = if_Fs
+    squared_higher_freq = 114500
+    square_Fs = 240000
     square_coeff = signal.firwin(rf_taps, [squared_lower_freq/(square_Fs/2), squared_higher_freq/(square_Fs/2)], window=('hann'), pass_zero="bandpass")
     pre_Pll_rds = signal.lfilter(square_coeff,1.0,squared_rds)
 
@@ -118,21 +118,63 @@ if __name__ == "__main__":
     #For RDS we need to output a bit more extra stuff
     #Know it it centered arounf 
     freq_centered = 114000
-    post_Pll =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 1.0, phaseAdjust = 0.0, normBandwidth = 0.01)
+    #TODO mess with these values to see what works best 
+    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = 0.0, normBandwidth = 0.01)
+
+    ax1.psd(pre_Pll_rds, NFFT=512, Fs=(square_Fs/rf_decim)/1e3)
+    ax1.set_ylabel('PSD (db/Hz)')
+    ax1.set_title('Extracted Mono')
+
+    ax2.psd(post_Pll, NFFT=512, Fs=(square_Fs/rf_decim)/1e3)
+    ax2.set_ylabel('PSD (db/Hz)')
+    ax2.set_title('Extracted Mono')
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
     #Just a mixer which is just some good old point wise multiplication 
-    demod_rds = np.multiply(extract_rds, post_Pll)
+    #I component
+    mixed_rds = np.multiply(extract_rds, post_Pll[1::])
+    #Q component
+    mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[1::])
 
     #LPF
+    cutoff_LPF = 3000
+    lpf_coeff_rds = signal.firwin(rf_taps, cutoff_LPF/(square_Fs/2), window=('hann'))
+    #I Compent 
+    lpf_filt_rds = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds)
+    #Q Compent 
+    lpf_filt_rds_Q = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds_Q)
 
     #Rational Resampler
-    
+    # to get 240000 to 57000 need to multiply by 80 / 19
+    upsample_rds = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
+    upsample_rds_Q = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
+    #Upsamples by 19
+    for i in range (len(lpf_filt_rds)):
+        upsample_rds[i*19] = lpf_filt_rds[i]
+        upsample_rds_Q[i*19] = lpf_filt_rds_Q[i]
+    #Downsample by 19 in order to to get a frequency of 57kHz  
+    resample_rds = upsample_rds[::80]
+    resample_rds_Q = upsample_rds_Q[::80]
+
     #Root raised cosine filter
+    rrc_Fs = square_Fs * (19/80)
+    rrc_taps = 151 
+    rrc_coeff = impulseResponseRootRaisedCosine(rrc_Fs, rrc_taps)
+    #I Component
+    rrc_rds = signal.lfilter(rrc_coeff, 1.0, resample_rds)
+    #Q Component
+    rrc_rds = signal.lfilter(rrc_coeff, 1.0, resample_rds_Q)
 
     #Clock and data recovery
 
+    # ---------------------RDS Data Processing--------------------------
+    #Deconding 
+
+    #Frame Sync and Error detection 
+
+    #RDS Application Layer
+    
 
 
     # PSD after extracting mono audio
@@ -152,8 +194,11 @@ if __name__ == "__main__":
     fig.savefig("../data/fmMonoBasic.png")
     plt.show()
 
+    plt.plot(10*pre_Pll_rds[10000:10100], c='b') 
+    plt.plot(post_Pll[10000:10100], c = 'r') 
+    plt.show()
     # write audio data to file (assumes audio_data samples are -1 to +1)
-    wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
+    #wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
     # during FM transmission audio samples in the mono channel will contain
     # the sum of the left and right audio channels; hence, we first
     # divide by two the audio sample value and then we rescale to fit
