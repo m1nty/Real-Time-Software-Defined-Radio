@@ -53,7 +53,7 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test4.raw"
+    in_fname = "../data/test2.raw"
     iq_data = np.fromfile(in_fname, dtype='float32')
     print("Read raw RF data from \"" + in_fname + "\" in float32 format")
     iq_data=iq_data[:5000000]
@@ -185,6 +185,7 @@ if __name__ == "__main__":
     symbol1= 0 
     symbol2 = 0
     #this v inefficent but just want to see if it works
+    #TODO Make this shit better
     for k in range(len(bit_stream)):
         #Need to see which each symbol corresponds too. For now do basic error detect
         #checks first symbol 
@@ -206,11 +207,11 @@ if __name__ == "__main__":
             one_count = 0
             zero_count += 1
         #Checks if there is any weird stuff
-        if(symbol_1 == symbol_2):
-            if(zero_count>1):
+        if(symbol_1 == symbol_2 and (zero_count>2 or one_count>2)): 
+            if(zero_count>2):
                 symbol_2 = 1
                 zero_count = 0 
-            else:
+            elif(one_count>2):
                 symbol_2 = 0 
                 one_count = 0
         #Finally sets up the bits
@@ -218,6 +219,7 @@ if __name__ == "__main__":
             bit_stream[k] = 1
         else: 
             bit_stream[k] = 0
+
     #Differential decoding
     diff_bits = np.zeros(len(bit_stream)-1) 
     prebit = bit_stream[0] 
@@ -241,8 +243,8 @@ if __name__ == "__main__":
                     
         #Doesnt do binary matrix multiplication correct
         potential_syndrome = potential_syndrome.astype(int)
-        print(potential_syndrome)
-        if ((potential_syndrome[0]).tolist() == [1,1,1,1,0,1,1,0,0,0]):
+#        print(potential_syndrome)
+        if ((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]):
             print("Syndrome A at position ", position)
         elif ((potential_syndrome).tolist() == [1,1,1,1,0,1,0,1,0,0]):
             print("Syndrome B at position ", position)
@@ -251,7 +253,7 @@ if __name__ == "__main__":
         elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]):
             print("Syndrome D at position ", position)
             D_count += 1 
-        position += 26 
+        position += 1 
         if(D_count>3 or position+26 > len(diff_bits)):
             break
 
