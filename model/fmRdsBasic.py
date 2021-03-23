@@ -46,6 +46,8 @@ audio_Fs = 48000
 audio_Fc = 16e3
 audio_taps = 151
 audio_decim = 5
+#Parity matrix
+H = np.matrix([[1,0,0,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0,0],[0,0,0,1,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0],[0,0,0,0,0,1,0,0,0,0],[0,0,0,0,0,0,1,0,0,0],[0,0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,0,0,1],[1,0,1,1,0,1,1,1,0,0],[0,1,0,1,1,0,1,1,1,0],[0,0,1,0,1,1,0,1,1,1],[1,0,1,0,0,0,0,1,1,1],[1,1,1,0,0,1,1,1,1,1],[1,1,0,0,0,1,0,0,1,1],[1,1,0,1,0,1,0,1,0,1],[1,1,0,1,1,1,0,1,1,0],[0,1,1,0,1,1,1,0,1,1],[1,0,0,0,0,0,0,0,0,1],[1,1,1,1,0,1,1,1,0,0], [0,1,1,1,1,0,1,1,1,0],[0,0,1,1,1,1,0,1,1,1],[1,0,1,0,1,0,0,1,1,1],[1,1,1,0,0,0,1,1,1,1], [1,1,0,0,0,1,1,0,1,1]]) 
 
 if __name__ == "__main__":
     # read the raw IQ data from the recorded file
@@ -124,7 +126,7 @@ if __name__ == "__main__":
     freq_centered = 114000
     #TODO mess with these values to see what works best 
     # note, we also need the Q component to properly tune the PLL using constalation diagrams 
-    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/1.5, normBandwidth = 0.01)
+    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/1.5, normBandwidth = 0.0025)
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
@@ -169,16 +171,89 @@ if __name__ == "__main__":
     #Clock and data recovery
     #Need to sample the shit
     #Check each 24 samples to try and identify the symbols
-    #TODO is 24 samples per symbol the H or the 1???
+    #TODO Find algorithm to determine starting poitn
     symbols_I = rrc_rds[::24]
     symbols_Q = rrc_rds_Q[::24]
-
-    #Plot scatter plots in order to tune the PLL 
+    #Scatter plots plotted later on 
 
     # ---------------------RDS Data Processing--------------------------
-    #Deconding 
+    #Decoding 
+    #Now that we have the symbols for high and low, we can then figure out the bits each represent
+    bit_stream = np.zeros(int(len(symbols_I)/2))
+    zero_count = 0
+    one_count = 0 
+    symbol1= 0 
+    symbol2 = 0
+    #this v inefficent but just want to see if it works
+    for k in range(len(bit_stream)):
+        #Need to see which each symbol corresponds too. For now do basic error detect
+        #checks first symbol 
+        if(symbols_I[2*k] > 0):
+            symbol_1 = 1 
+            one_count += 1
+            zero_count = 0
+        else: 
+            symbol_1 = 0 
+            one_count = 0
+            zero_count += 1
+        #Checks second symbol
+        if(symbols_I[2*k+1] > 0):
+            symbol_2 = 1 
+            one_count += 1
+            zero_count = 0
+        else: 
+            symbol_2 = 0 
+            one_count = 0
+            zero_count += 1
+        #Checks if there is any weird stuff
+        if(symbol_1 == symbol_2):
+            if(zero_count>1):
+                symbol_2 = 1
+                zero_count = 0 
+            else:
+                symbol_2 = 0 
+                one_count = 0
+        #Finally sets up the bits
+        if(symbol_1 == 1 and symbol_2 == 0): 
+            bit_stream[k] = 1
+        else: 
+            bit_stream[k] = 0
+    #Differential decoding
+    diff_bits = np.zeros(len(bit_stream)-1) 
+    prebit = bit_stream[0] 
+    #Does XOR on the bits
+    for t in range(len(diff_bits)): 
+        diff_bits[t] = (prebit and not bit_stream[t+1]) or (not prebit and bit_stream[t+1])
+        prebit = bit_stream[t+1] 
 
     #Frame Sync and Error detection 
+    #Need to check for sydromes: 
+    position = 0 
+    D_count = 0
+    while True:
+        block = diff_bits[position:position+26]
+        #potential_syndrome = np.matmul(block, H) 
+        potential_syndrome = np.zeros(10) 
+        for i in range(len(potential_syndrome)):
+                for j in range(26): 
+                    mult = block[j] and H[j,i]
+                    potential_syndrome[i] = (potential_syndrome[i] and not mult) or (not potential_syndrome[i] and mult)
+                    
+        #Doesnt do binary matrix multiplication correct
+        potential_syndrome = potential_syndrome.astype(int)
+        print(potential_syndrome)
+        if ((potential_syndrome[0]).tolist() == [1,1,1,1,0,1,1,0,0,0]):
+            print("Syndrome A at position ", position)
+        elif ((potential_syndrome).tolist() == [1,1,1,1,0,1,0,1,0,0]):
+            print("Syndrome B at position ", position)
+        elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,1,0,0]):
+            print("Syndrome C at position ", position)
+        elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]):
+            print("Syndrome D at position ", position)
+            D_count += 1 
+        position += 26 
+        if(D_count>3 or position+26 > len(diff_bits)):
+            break
 
     #RDS Application Layer
 
@@ -207,8 +282,8 @@ if __name__ == "__main__":
     #plt.plot(10*pre_Pll_rds[10180:10200], c='b') 
     #plt.plot(post_Pll[10180:10200], c = 'r') 
     #plt.show()
-    #plt.plot(rrc_rds, c = 'r') 
-    #plt.show()
+    plt.plot(rrc_rds, c = 'r') 
+    plt.show()
     # write audio data to file (assumes audio_data samples are -1 to +1)
     #wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
     # during FM transmission audio samples in the mono channel will contain
