@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
-    in_fname = "/home/pi/project/data/test1.raw"
+    in_fname = "../data/test1.raw"
     iq_data = np.fromfile(in_fname, dtype='float32')
     print("Read raw RF data from \"" + in_fname + "\" in float32 format")
 
@@ -113,7 +113,6 @@ if __name__ == "__main__":
         bpcoeff_recovery = signal.firwin(rf_taps, [18.5e3/(audio_Fs/2), 19.5e3/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
         # 2. lfilter
         bpf_recovery, state_recovery = signal.lfilter(bpcoeff_recovery, 1.0, fm_demod, zi=state_recovery)
-        print(len(bpf_recovery))
         # 3. pll
         recovery_pll, recovery_state = fmPll(bpf_recovery, 19e3, 240e3, recovery_state, 2)
 
@@ -168,10 +167,6 @@ if __name__ == "__main__":
             combined_l[i] = (audio_data[i]+stereo_data[i])/2
             combined_r[i] = (audio_data[i]-stereo_data[i])/2
 
-
-
-
-
         # to save runtime select the range of blocks to log iq_data
         # this includes both saving binary files as well plotting PSD
         # below we assume we want to plot for graphs for blocks 10 and 11
@@ -208,11 +203,11 @@ if __name__ == "__main__":
             fig, (ax0,ax1,ax2,ax3,ax4) = plt.subplots(nrows=5)
             fig.subplots_adjust(hspace = 1.0)
 
-            ax0.psd(bpf_recovery, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax0.psd(bpf_recovery, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax0.set_ylabel('PSD (db/Hz)')
             ax0.set_title('Extracted Stereo Pilot Tone')
 
-            ax1.psd(bpf_extraction, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax1.psd(bpf_extraction, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax1.set_ylabel('PSD (db/Hz)')
             ax1.set_title('Extracted Stereo Channel')
 
@@ -220,23 +215,22 @@ if __name__ == "__main__":
             ax2.set_ylabel('PSD (db/Hz)')
             ax2.set_title('cos(α - β) and cos(α + β) Components')
 
-            ax3.psd(stereo_filt, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax3.psd(stereo_filt, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax3.set_ylabel('PSD (db/Hz)')
             ax3.set_title('LPF cos(α - β) Extraction')
 
-            ax4.psd(audio_data, NFFT=512, Fs=48)
-            ax4.psd(stereo_data, NFFT=512, Fs=48)
+            ax4.psd(audio_data, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
+            ax4.psd(stereo_data, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax4.set_ylabel('PSD (db/Hz)')
             ax4.set_title('Mono Audio vs Stereo Audio')
 
             fig, (ax5,ax6) = plt.subplots(nrows=2)
             fig.subplots_adjust(hspace = 1.0)
-            ax5.psd(combined_l, NFFT=512, Fs=48)
+            ax5.psd(combined_l, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax5.set_ylabel('PSD (db/Hz)')
             ax5.set_title('Left Audio Channel')
 
-            #ax6.psd(combined_r, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
-            ax6.psd(combined_r, NFFT=512, Fs=48)
+            ax6.psd(combined_r, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax6.set_ylabel('PSD (db/Hz)')
             ax6.set_title('Right Audio Channel')
 
@@ -253,7 +247,7 @@ if __name__ == "__main__":
     stereo = np.array([combined_l, combined_r]).transpose()
 
     print("Writing Wav File")
-    wavfile.write("/home/pi/project/data/fmMonoBlock.wav", int(48e3), stereo)
+    wavfile.write("../data/fmMonoBlock.wav", int(48e3), stereo)
 
 # uncomment assuming you wish to show some plots
 plt.show()
