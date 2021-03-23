@@ -16,7 +16,8 @@ import math
 # use "custom" fmDemodArctan
 from fmSupportLib import fmDemodArctan
 from fmSupportLib import my_filterImpulseResponse
-from fmSupportLib import my_convoloution 
+from fmSupportLib import my_convoloution
+from fmPll import fmPll
 
 rf_Fs = 2.4e6
 rf_Fc = 100e3
@@ -34,8 +35,7 @@ if __name__ == "__main__":
 
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
-    # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test1.raw"
+    in_fname = "/home/pi/project/data/test1.raw"
     iq_data = np.fromfile(in_fname, dtype='float32')
     print("Read raw RF data from \"" + in_fname + "\" in float32 format")
 
@@ -68,6 +68,11 @@ if __name__ == "__main__":
     stereo_data = np.array([])
     stereo_pre_state = np.zeros(audio_taps-1)
 
+    # INITIALIZE STATE VARIABLES FOR FIRST BLOCK
+    # recovery_state;
+    # [integrator, phaseEst, feedbackI, feedbackQ, ncoOut[0], trigOffset]
+    recovery_state = [0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
     # if the number of samples in the last block is less than the block size
     # it is fine to ignore the last few samples from the raw IQ file
     while (block_count+1)*block_size < len(iq_data):
@@ -82,7 +87,7 @@ if __name__ == "__main__":
         q_filt, state_q_lpf_100k = signal.lfilter(rf_coeff, 1.0, \
                        iq_data[(block_count)*block_size+1:(block_count+1)*block_size:2],
                        zi=state_q_lpf_100k)
-    
+
         # downsample the FM channel
         i_ds = i_filt[::rf_decim]
         q_ds = q_filt[::rf_decim]
@@ -91,11 +96,11 @@ if __name__ == "__main__":
         fm_demod, state_phase = fmDemodArctan(i_ds, q_ds, state_phase)
 
         # extract the mono audtio data through filtering
-        audio_filt, audio_pre_state = signal.lfilter(audio_coeff, 1.0, fm_demod,zi=audio_pre_state)  
-        
+        audio_filt, audio_pre_state = signal.lfilter(audio_coeff, 1.0, fm_demod,zi=audio_pre_state)
+
         # downsample audio data
         # audio_block = ... change as needed
-        audio_block = audio_filt[::audio_decim] 
+        audio_block = audio_filt[::audio_decim]
 
         # concatanete most recently processed audio_block
         # to the previous blocks stored in audio_data
@@ -103,25 +108,57 @@ if __name__ == "__main__":
 
 
 
-
-
         #-----------------------STEREO CARRIER RECOVERY-------------------------------
+        # 1. firwin
         bpcoeff_recovery = signal.firwin(rf_taps, [18.5e3/(audio_Fs/2), 19.5e3/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
+        # 2. lfilter
         bpf_recovery, state_recovery = signal.lfilter(bpcoeff_recovery, 1.0, fm_demod, zi=state_recovery)
-        #PLL Block Code
+        print(len(bpf_recovery))
+        # 3. pll
+        recovery_pll, recovery_state = fmPll(bpf_recovery, 19e3, 240e3, recovery_state, 2)
+
+        if block_count == 3:
+            final_prev = recovery_pll[-10:len(recovery_pll)]
+
+        if block_count == 4:
+            indices = np.arange(0, 20)
+            first_next = recovery_pll[0:10]
+
+            win, (td_plot) = plt.subplots(1)
+            win.suptitle("Time Domain Plot of End + Start Window")
+
+            xs = indices
+            print(final_prev.shape)
+            print(first_next.shape)
+            ys = np.concatenate([final_prev, first_next])
+
+            print(xs, ys)
+            print(recovery_pll)
+            print(type(recovery_pll))
+
+            td_plot.plot(xs, ys)
+            plt.show()
+
+            td_plot.set(xlabel="Sample #", ylabel="Amplitude Value")
+
+        #recovery PLL block code
+        print("Completed Recovery BPF Convolution")
+
 
         #-----------------------STEREO CHANNEL EXTRACTION-------------------------------
         bpcoeff_extraction = signal.firwin(rf_taps,[22e3/(audio_Fs/2), 54e3/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
         bpf_extraction, state_extraction = signal.lfilter(bpcoeff_extraction, 1.0, fm_demod,zi=state_extraction)
-        
+
         #-----------------------STEREO PROCESSING-------------------------------
         #Mixing
-        # mixed = np.multiply(recovery_pll[0:len(bpf_extraction):1],bpf_extraction)
+        mixed = np.multiply(recovery_pll[0:len(bpf_extraction):1],bpf_extraction)
+        mixed = mixed*2
+
         #LPF
         stereo_coeff = signal.firwin(rf_taps, 16e3/(audio_Fs/2), window=('hann'))
-        stereo_filt, stereo_pre_state = signal.lfilter(stereo_coeff, 1.0, fm_demod,zi=stereo_pre_state)  
+        stereo_filt, stereo_pre_state = signal.lfilter(stereo_coeff, 1.0, fm_demod,zi=stereo_pre_state)
         #Decimation
-        stereo_block = stereo_filt[::5] 
+        stereo_block = stereo_filt[::5]
         stereo_data = np.concatenate((stereo_data, stereo_block))
 
         #Combiner
@@ -179,7 +216,7 @@ if __name__ == "__main__":
             ax1.set_ylabel('PSD (db/Hz)')
             ax1.set_title('Extracted Stereo Channel')
 
-            # ax2.psd(mixed, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax2.psd(mixed, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
             ax2.set_ylabel('PSD (db/Hz)')
             ax2.set_title('cos(α - β) and cos(α + β) Components')
 
@@ -187,27 +224,36 @@ if __name__ == "__main__":
             ax3.set_ylabel('PSD (db/Hz)')
             ax3.set_title('LPF cos(α - β) Extraction')
 
-            ax4.psd(audio_data, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
-            ax4.psd(stereo_data, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax4.psd(audio_data, NFFT=512, Fs=48)
+            ax4.psd(stereo_data, NFFT=512, Fs=48)
             ax4.set_ylabel('PSD (db/Hz)')
             ax4.set_title('Mono Audio vs Stereo Audio')
 
             fig, (ax5,ax6) = plt.subplots(nrows=2)
             fig.subplots_adjust(hspace = 1.0)
-            ax5.psd(combined_l, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax5.psd(combined_l, NFFT=512, Fs=48)
             ax5.set_ylabel('PSD (db/Hz)')
             ax5.set_title('Left Audio Channel')
 
-            ax6.psd(combined_r, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            #ax6.psd(combined_r, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax6.psd(combined_r, NFFT=512, Fs=48)
             ax6.set_ylabel('PSD (db/Hz)')
             ax6.set_title('Right Audio Channel')
+
+            print(rf_Fs/rf_decim)
 
         block_count += 1
 
     print('Finished processing the raw I/Q samples')
 
 # write audio data to a .wav file (assumes audio_data samples are -1 to +1)
-    wavfile.write("../data/fmMonoBlock.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
+
+    combined_l = np.int16((combined_l)*32767)
+    combined_r = np.int16((combined_r)*32767)
+    stereo = np.array([combined_l, combined_r]).transpose()
+
+    print("Writing Wav File")
+    wavfile.write("/home/pi/project/data/fmMonoBlock.wav", int(48e3), stereo)
 
 # uncomment assuming you wish to show some plots
 plt.show()
