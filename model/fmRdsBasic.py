@@ -53,11 +53,12 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test2.raw"
-    iq_data = np.fromfile(in_fname, dtype='float32')
+    in_fname = "../data/test5.raw"
+    iq_data = np.fromfile(in_fname, dtype='uint8')
+    iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in float32 format")
-    #iq_data=iq_data[:15*102400]
 
+    #iq_data=iq_data[:20*102400]
     # Additional params needed for our own functions
     i_pre = np.zeros(rf_taps-1) 
     q_pre = np.zeros(rf_taps-1)
@@ -126,15 +127,15 @@ if __name__ == "__main__":
     freq_centered = 114000
     #TODO mess with these values to see what works best 
     # note, we also need the Q component to properly tune the PLL using constalation diagrams 
-    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/2+math.pi/1.5, normBandwidth = 0.0025)
+    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust =  math.pi/3.3-math.pi/1.5, normBandwidth = 0.0025)
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
     #Just a mixer which is just some good old point wise multiplication 
     #I component
-    mixed_rds = np.multiply(extract_rds, post_Pll[1::])
+    mixed_rds = np.multiply(extract_rds, post_Pll[0:len(extract_rds):1])
     #Q component
-    mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[1::])
+    mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[0:len(extract_rds):1])
 
     #LPF
     cutoff_LPF = 3000
@@ -163,9 +164,6 @@ if __name__ == "__main__":
     #Downsample by 19 in order to to get a frequency of 57kHz  
     resample_rds = anti_img[::80]*19
     resample_rds_Q = anti_img_Q[::80]*19
-
-#    resample_rds = upsample_rds[::80]*19
-#    resample_rds_Q = upsample_rds_Q[::80]*19
     #After this both signals should be 57kHz
 
     #Root raised cosine filter
@@ -183,11 +181,16 @@ if __name__ == "__main__":
     #Check each 24 samples to try and identify the symbols
     #TODO Find algorithm to determine starting poitn some shit starting at the midpoint
     int_offset = 0 
-    #bold move BUT maybe do a binary search try type of bullshit to find the most distinct point in the first 24 samples
-    #I honestly dunno if this is worse or better
-    int_offset = (np.where(rrc_rds[0:24] == np.amax(rrc_rds[0:24])))[0][0]
-    print("int offset ", int_offset)
+    
+    #NOTE Suspect 2
+#    # This method gets us syndromes at the beginning
+    int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
 
+#    # This work for later bits 
+#    int_offset = 0 
+    
+
+    print("int offset ", int_offset)
     #Go to every 24th sample 
     symbols_I = rrc_rds[int_offset::24]
     symbols_Q = rrc_rds_Q[int_offset::24]
@@ -201,18 +204,16 @@ if __name__ == "__main__":
     one_count = 0 
     symbol1= 0 
     symbol2 = 0
-    #this v inefficent but just want to see if it works
+    #NOTE Suspect 1 
     #TODO needa sorta make it a gradient
     for k in range(len(bit_stream)):
-        #Need to see which each symbol corresponds too. For now do basic error detect
-        #checks first symbol 
-
         #Dunno if this alot better or alot worse 1
         #Takes 3 bits in order to make sure we dont get 3 in a row
         if(2*k+2 < len(symbols_I)):
             three_bits = [symbols_I[2*k], symbols_I[2*k+1],symbols_I[2*k+2]]
             #Check if they all high ya know
             if(three_bits[0] > 0 and three_bits[1] > 0 and three_bits[2] > 0):
+                print("3 High at ", k)
                 if(three_bits[0] < three_bits[1] and three_bits[0] < three_bits[2]):
                     three_bits[0] = -1*three_bits[0]
                     symbols_I[2*k] = -1*symbols_I[2*k]
@@ -221,9 +222,10 @@ if __name__ == "__main__":
                     symbols_I[2*k+1] = -1*symbols_I[2*k+1]
                 elif(three_bits[2] < three_bits[0] and three_bits[2] < three_bits[1]):
                     three_bits[2] = -1*three_bits[2]
-                    symbols_I[2*k+2] = -1*symbols_I[2*k+2]
+                    #symbols_I[2*k+2] = -1*symbols_I[2*k+2]
             #Check if they all low
-            elif(three_bits[0] <= 0 and three_bits[1] <= 0 and three_bits[2] <= 0):
+            elif(three_bits[0] < 0 and three_bits[1] < 0 and three_bits[2] < 0):
+                print("3 low  at ",k)
                 if(three_bits[0] > three_bits[1] and three_bits[0] > three_bits[2]):
                     three_bits[0] = -1*three_bits[0]
                     symbols_I[2*k] = -1*symbols_I[2*k]
@@ -284,6 +286,8 @@ if __name__ == "__main__":
         diff_bits[t] = (prebit and not bit_stream[t+1]) or (not prebit and bit_stream[t+1])
         prebit = bit_stream[t+1] 
     print("Size of diff bit ", len(diff_bits))
+
+    #NOTE This shit slaps, problem is not here 
     #Frame Sync and Error detection 
     #Need to check for sydromes: 
     position = 0 
@@ -342,7 +346,7 @@ if __name__ == "__main__":
     #plt.plot(10*pre_Pll_rds[10180:10200], c='b') 
     #plt.plot(post_Pll[10180:10200], c = 'r') 
     #plt.show()
-    plt.plot(rrc_rds, c = 'r') 
+    plt.plot(rrc_rds[200:600], c = 'r') 
     plt.show()
     # write audio data to file (assumes audio_data samples are -1 to +1)
     #wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
