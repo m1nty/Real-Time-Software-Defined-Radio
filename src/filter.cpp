@@ -68,7 +68,6 @@ void convolveFIR(std::vector<float> &y, const std::vector<float> &x, const std::
 	}
 }
 
-//TODO make sure it works with block processing. This is only been tested with basic and it may have issues come up later on
 //Downsamples and does convoloution at the same time in order to go speedy 
 void convolveWithDecim(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num)
 {
@@ -97,33 +96,33 @@ void convolveWithDecim(std::vector<float> &y, const std::vector<float> &x, const
 	//Assigns next zi value 
 	for(auto i = 0; i < zi.size(); i++){
 		zi[i] = x[x.size()-zi.size()-1+i]; 
-	}
+}
 }
 
 //Meant to combine the the convoloution of both I and Q samples. Hopefully faster but who knows in this economy 
 void convolveWithDecimIQ(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi,std::vector<float> &y1, const std::vector<float> &x1, std::vector<float> &zi1, const int &decim_num)
 {
-	//Creates vector for down sampled data
-	y.resize(x.size()/decim_num);
-	y1.resize(x1.size()/decim_num);
-	//Loops through vlaues to do convoloution
-        int count;
-        for (auto n = 0; n < y.size(); n++)
+//Creates vector for down sampled data
+y.resize(x.size()/decim_num);
+y1.resize(x1.size()/decim_num);
+//Loops through vlaues to do convoloution
+int count;
+for (auto n = 0; n < y.size(); n++)
+{
+	count = 0;
+	for (auto k = 0; k < h.size(); k++)
 	{
-                count = 0;
-                for (auto k = 0; k < h.size(); k++)
+		if((decim_num*n-k >= 0) && (decim_num*n-k < x.size()))
 		{
-			if((decim_num*n-k >= 0) && (decim_num*n-k < x.size()))
-			{
-				//Multiplies n by the downsample number so not every value is used only the samples we need
-                                y[n] += x[decim_num*n-k]*h[k];
-                                y1[n] += x1[decim_num*n-k]*h[k];
-			}
-			//Previous state data
-			else
-			{
-                                y[n] += zi[zi.size()-1-count]*h[k];
-                                y1[n] += zi1[zi1.size()-1-count]*h[k];
+			//Multiplies n by the downsample number so not every value is used only the samples we need
+			y[n] += x[decim_num*n-k]*h[k];
+			y1[n] += x1[decim_num*n-k]*h[k];
+		}
+		//Previous state data
+		else
+		{
+			y[n] += zi[zi.size()-1-count]*h[k];
+			y1[n] += zi1[zi1.size()-1-count]*h[k];
 				count += 1;
 			}
                 }
@@ -132,5 +131,45 @@ void convolveWithDecimIQ(std::vector<float> &y, const std::vector<float> &x, con
 	for(auto i = 0; i < zi.size(); i++){
 		zi[i] = x[x.size()-zi.size()-1+i]; 
 		zi1[i] = x1[x1.size()-zi.size()-1+i]; 
+	}
+}
+
+//Convoloution in mode 1, takes upsamling and decimation as an argument 
+void convolveWithDecimMode1(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample)
+{
+	//Creates vector for down sampled data
+	y.resize(x.size()*up_sample/decim_num);
+	//Loops through vlaues to do convoloution
+        int count;
+	//Iterator for the impulse response 
+	int iter;
+        for (auto n = 0; n < y.size(); n++)
+	{
+		//Reset the values
+                count = 0;
+		iter = 1;
+                for (auto k = 0; k < h.size(); k= k+iter)
+		{
+			//Once you reach a non-zero start iterating 24 
+			if(decim_num*n-k == 0 || (decim_num*n-k) %up_sample == 0) iter = up_sample; 
+			else continue;
+			
+			//
+			if((decim_num*n-k >= 0) && (decim_num*n-k < x.size()*up_sample))
+			{
+                                y[n] += x[(decim_num*n-k) /up_sample]*h[k];
+			}
+			//Previous state data
+			else
+			{
+				y[n] += zi[(zi.size()-1-count)/up_sample]*h[k];
+			}
+
+			count += 1;
+                }
+        }
+	//Assigns next zi value 
+	for(auto i = 0; i < zi.size(); i++){
+		zi[i] = x[x.size()-zi.size()-1+i]; 
 	}
 }

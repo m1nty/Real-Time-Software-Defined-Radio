@@ -3,7 +3,7 @@
 CC = g++
 # CFLAGS = -c -Wall -Wpedantic
 CFLAGS = -c -O3
-LDFLAGS =
+LDFLAGS = -lm -pthread
 SOURCES = iofunc.cpp filter.cpp  fourier.cpp  genfunc.cpp  logfunc.cpp rf_module.cpp fm_radio.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 EXECUTABLE = experiment
