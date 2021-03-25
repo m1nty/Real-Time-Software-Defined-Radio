@@ -53,12 +53,12 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test5.raw"
+    in_fname = "../data/test7.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
-    print("Read raw RF data from \"" + in_fname + "\" in float32 format")
+    print("Read raw RF data from \"" + in_fname + "\" in float32 format. Block size is ", len(iq_data))
 
-    #iq_data=iq_data[:20*102400]
+    iq_data=iq_data[:20*307200]
     # Additional params needed for our own functions
     i_pre = np.zeros(rf_taps-1) 
     q_pre = np.zeros(rf_taps-1)
@@ -127,15 +127,16 @@ if __name__ == "__main__":
     freq_centered = 114000
     #TODO mess with these values to see what works best 
     # note, we also need the Q component to properly tune the PLL using constalation diagrams 
-    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust =  math.pi/3.3-math.pi/1.5, normBandwidth = 0.0025)
+    # This works with what nicolici gave us 
+    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/4.5, normBandwidth = 0.0001)
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
     #Just a mixer which is just some good old point wise multiplication 
     #I component
-    mixed_rds = np.multiply(extract_rds, post_Pll[0:len(extract_rds):1])
+    mixed_rds = np.multiply(extract_rds, post_Pll[1::])*2
     #Q component
-    mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[0:len(extract_rds):1])
+    mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[1::])*2
 
     #LPF
     cutoff_LPF = 3000
@@ -156,7 +157,7 @@ if __name__ == "__main__":
 
     #Downsample by 19 in order to to get a frequency of 57kHz  
     #TODO Add anti imagining filter `
-    anti_img_coeff = signal.firwin(rf_taps, 28500/((240000*19)/2), window=('hann'))
+    anti_img_coeff = signal.firwin(rf_taps, (57000/2)/((240000*19)/2), window=('hann'))
     #I Compent 
     anti_img = signal.lfilter(anti_img_coeff,1.0, upsample_rds)
     #Q Compent 
@@ -175,6 +176,7 @@ if __name__ == "__main__":
     rrc_rds = signal.lfilter(rrc_coeff, 1.0, resample_rds)
     #Q Component
     rrc_rds_Q = signal.lfilter(rrc_coeff, 1.0, resample_rds_Q)
+    print("RRC output this long ", len(rrc_rds))
 
     #Clock and data recovery
     #Need to sample the shit
@@ -182,19 +184,16 @@ if __name__ == "__main__":
     #TODO Find algorithm to determine starting poitn some shit starting at the midpoint
     int_offset = 0 
     
-    #NOTE Suspect 2
-#    # This method gets us syndromes at the beginning
+    #Pretty sure this method is good 
     int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
 
 #    # This work for later bits 
 #    int_offset = 0 
     
-
     print("int offset ", int_offset)
     #Go to every 24th sample 
     symbols_I = rrc_rds[int_offset::24]
     symbols_Q = rrc_rds_Q[int_offset::24]
-    #Scatter plots plotted later on 
 
     # ---------------------RDS Data Processing--------------------------
     #Decoding 
@@ -207,6 +206,8 @@ if __name__ == "__main__":
     #NOTE Suspect 1 
     #TODO needa sorta make it a gradient
     for k in range(len(bit_stream)):
+        #Need to add screening
+        #for n in range(len(bit_stream))
         #Dunno if this alot better or alot worse 1
         #Takes 3 bits in order to make sure we dont get 3 in a row
         if(2*k+2 < len(symbols_I)):
@@ -222,7 +223,7 @@ if __name__ == "__main__":
                     symbols_I[2*k+1] = -1*symbols_I[2*k+1]
                 elif(three_bits[2] < three_bits[0] and three_bits[2] < three_bits[1]):
                     three_bits[2] = -1*three_bits[2]
-                    #symbols_I[2*k+2] = -1*symbols_I[2*k+2]
+                    symbols_I[2*k+2] = -1*symbols_I[2*k+2]
             #Check if they all low
             elif(three_bits[0] < 0 and three_bits[1] < 0 and three_bits[2] < 0):
                 print("3 low  at ",k)
@@ -245,38 +246,6 @@ if __name__ == "__main__":
             bit_stream[k] = 1
         elif(three_bits[0]<0 and three_bits[1]>0):
             bit_stream[k] = 0
-        
-        
-#        if(symbols_I[2*k] > 0):
-#            symbol_1 = 1 
-#            one_count += 1
-#            zero_count = 0
-#        else: 
-#            symbol_1 = 0 
-#            one_count = 0
-#            zero_count += 1
-#        #Checks second symbol
-#        if(symbols_I[2*k+1] > 0):
-#            symbol_2 = 1 
-#            one_count += 1
-#            zero_count = 0
-#        else: 
-#            symbol_2 = 0 
-#            one_count = 0
-#            zero_count += 1
-#        #Checks if there is any weird stuff
-#        if(symbol_1 == symbol_2 and (zero_count>2 or one_count>2)): 
-#            if(zero_count>2):
-#                symbol_2 = 1
-#                zero_count = 0 
-#            elif(one_count>2):
-#                symbol_2 = 0 
-#                one_count = 0
-#        #Finally sets up the bits
-#        if(symbol_1 == 1 and symbol_2 == 0): 
-#            bit_stream[k] = 1
-#        else: 
-#            bit_stream[k] = 0
 
     #Differential decoding
     diff_bits = np.zeros(len(bit_stream)-1) 
@@ -291,13 +260,13 @@ if __name__ == "__main__":
     #Frame Sync and Error detection 
     #Need to check for sydromes: 
     position = 0 
-    D_count = 0
     while True:
         block = diff_bits[position:position+26]
         #Below line used to test if this shit works correctly, and it do
         #block = np.array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,0,0])
         #potential_syndrome = np.matmul(block, H) 
         potential_syndrome = np.zeros(10) 
+        #Does the binary matrix multiplication that uses XORs and ANDs
         for i in range(len(potential_syndrome)):
                 for j in range(26): 
                     mult = block[j] and H[j,i]
@@ -315,7 +284,7 @@ if __name__ == "__main__":
         elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]):
             print("Syndrome D at position ", position)
         position += 1 
-        if(D_count>3 or position+26 > len(diff_bits)):
+        if( position+26 > len(diff_bits)):
             break
 
     #Retrieve Radio text
@@ -341,12 +310,14 @@ if __name__ == "__main__":
     fig, (p_adjust1) = plt.subplots(nrows=1)
     fig.subplots_adjust(hspace = 1.0)
     p_adjust1.scatter(symbols_I, symbols_Q, s=10)
+    p_adjust1.set_ylim(-1.25, 1.25)
     plt.show()
 
     #plt.plot(10*pre_Pll_rds[10180:10200], c='b') 
     #plt.plot(post_Pll[10180:10200], c = 'r') 
     #plt.show()
-    plt.plot(rrc_rds[200:600], c = 'r') 
+    plt.plot(rrc_rds[10000:11100], c = 'r') 
+    plt.plot(rrc_rds_Q[10000:11100], c = 'b') 
     plt.show()
     # write audio data to file (assumes audio_data samples are -1 to +1)
     #wavfile.write("../data/fmMonoBasic.wav", int(audio_Fs), np.int16((audio_data/2)*32767))
