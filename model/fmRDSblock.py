@@ -54,10 +54,11 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test6.raw"
+    in_fname = "../data/test5.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in float32 format. Block size is ", len(iq_data))
+    iq_data = iq_data[0:5*307200]
 
     # coefficients for the front-end low-pass filter
     rf_coeff = signal.firwin(rf_taps, \
@@ -67,8 +68,6 @@ if __name__ == "__main__":
     audio_coeff = signal.firwin(audio_taps, audio_Fc/(audio_Fs/2), window=('hann'))
 
     # set up drawing
-    fig, (ax0, ax1, ax2) = plt.subplots(nrows=3)
-    fig.subplots_adjust(hspace = 1.0)
 
     # select a block_size that is in KB and
     # a multiple of decimation factors
@@ -94,7 +93,8 @@ if __name__ == "__main__":
     #Pll values 
     freq_centered =114000
     phase_adj = math.pi/3.3-math.pi/1.5
-    state_Pll = np.zeros(6)
+    state_Pll =[0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
     #Coefficents for the LPF of fc 3000Hz
     lpf_coeff_rds = signal.firwin(rf_taps, cutoff_LPF/(audio_Fs/2), window=('hann'))
     lpf_3k_state = np.zeros(rf_taps-1) 
@@ -146,7 +146,7 @@ if __name__ == "__main__":
         
         # ------------------------Extraction--------------------------------
         # Performs convoloution to extract the data
-        extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,pre_state_extract)
+        extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,zi=pre_state_extract)
 
         # ---------------------Carrier Recovery-----------------------------
         #Squaring Nonolinearity
@@ -154,11 +154,11 @@ if __name__ == "__main__":
         squared_rds = np.square(extract_rds)
 
         #BPF
-        pre_Pll_rds,square_state = signal.lfilter(square_coeff,1.0,squared_rds,square_state)
+        pre_Pll_rds,square_state = signal.lfilter(square_coeff,1.0,squared_rds,zi=square_state)
         
         #PLL 
         #NOTE Needa ass shit
-        post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, 240000, ncoScale = 0.5, phaseAdjust =phase_adj , normBandwidth = 0.001)
+        post_Pll, post_Pll_Q, state_Pll =  fmPll(pre_Pll_rds, freq_centered, 240000, state_Pll, ncoScale = 0.5, phaseAdjust =phase_adj , normBandwidth = 0.001)
 
         # -----------------------Demodulation-------------------------------
         # Mixer 
@@ -170,9 +170,9 @@ if __name__ == "__main__":
 
         #LPF
         #I Compent 
-        lpf_filt_rds,lpf_3k_state = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds,lpf_3k_state)
+        lpf_filt_rds,lpf_3k_state = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds,zi=lpf_3k_state)
         #Q Compent 
-        lpf_filt_rds_Q,lpf_3k_state_Q = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds_Q,lpf_3k_state_Q)
+        lpf_filt_rds_Q,lpf_3k_state_Q = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds_Q,zi=lpf_3k_state_Q)
 
         upsample_rds = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
         upsample_rds_Q = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
@@ -184,32 +184,47 @@ if __name__ == "__main__":
             upsample_rds_Q[i*upsample_val] = lpf_filt_rds_Q[i]
         #Downsample by 19 in order to to get a frequency of 57kHz  
         #I Compent 
-        anti_img,anti_img_state= signal.lfilter(anti_img_coeff,1.0, upsample_rds,anti_img_state)
+        anti_img,anti_img_state= signal.lfilter(anti_img_coeff,1.0, upsample_rds,zi=anti_img_state)
         #Q Compent 
-        anti_img_Q,anti_img_state_Q= signal.lfilter(anti_img_coeff,1.0, upsample_rds_Q,anti_img_state_Q)
+        anti_img_Q,anti_img_state_Q= signal.lfilter(anti_img_coeff,1.0, upsample_rds_Q,zi=anti_img_state_Q)
         #Downsample by 19 in order to to get a frequency of 57kHz  
         resample_rds = anti_img[::downsample_val]*upsample_val
         resample_rds_Q = anti_img_Q[::downsample_val]*upsample_val
 
         #RRC Filter
-        rrc_rds,rrc_state = signal.lfilter(rrc_coeff, 1.0, resample_rds,rrc_state)
+        rrc_rds,rrc_state = signal.lfilter(rrc_coeff, 1.0, resample_rds,zi=rrc_state)
         #Q Component
-        rrc_rds_Q, rrc_state_Q= signal.lfilter(rrc_coeff, 1.0, resample_rds_Q,rrc_state_Q)
+        rrc_rds_Q, rrc_state_Q= signal.lfilter(rrc_coeff, 1.0, resample_rds_Q,zi=rrc_state_Q)
 
         #Clock and data recovery
         #TODO add some fancy shit for block processing 
-        #Need to sample the shit
-        #Check each 24 samples to try and identify the symbols
-        #Pretty sure this method is good 
-        if block_count == 0: 
+        #NOTE This shit may be fucking dookie
+        if block_count ==0:
             int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]
         symbols_Q = rrc_rds_Q[int_offset::24]
+        #block processing the offset for the next block 
+        int_offset = 24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
+        
+        #Plotting
+        if block_count == 3: 
+            fig, (p_adjust1) = plt.subplots(nrows=1)
+            fig, (rrc) = plt.subplots(nrows=1)
+            fig.subplots_adjust(hspace = 1.0)
+            p_adjust1.scatter(symbols_I, symbols_Q, s=10)
+            p_adjust1.set_ylim(-1.25, 1.25)
+            rrc.plot(rrc_rds[0:240], c = 'r') 
+            rrc.plot(rrc_rds_Q[0:240], c = 'b') 
+
+        # ---------------------RDS Data Processing--------------------------
+        #Screening only needs to happen at block 0
+
+
 
         block_count += 1
 
 
 
 # uncomment assuming you wish to show some plots
-# plt.show()
+plt.show()
