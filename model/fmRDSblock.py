@@ -57,8 +57,8 @@ if __name__ == "__main__":
     in_fname = "../data/test5.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
-    print("Read raw RF data from \"" + in_fname + "\" in float32 format. Block size is ", len(iq_data))
-    iq_data = iq_data[0:5*307200]
+    print("Read raw RF data from \"" + in_fname + "\" in uint8 format. Block size is ", len(iq_data))
+    iq_data = iq_data[0:8*307200]
 
     # coefficients for the front-end low-pass filter
     rf_coeff = signal.firwin(rf_taps, \
@@ -115,9 +115,11 @@ if __name__ == "__main__":
     inital_offset = 0
     final_symb = 0 
     #differential decoding
-
+    remain_symbol = 0.0
     #Frame sync
-    
+    printposition = 0 
+    prev_sync_bits = np.zeros(0) 
+    last_position = -1
     # if the number of samples in the last block is less than the block size
     # it is fine to ignore the last few samples from the raw IQ file
     while (block_count+1)*block_size < len(iq_data):
@@ -208,7 +210,7 @@ if __name__ == "__main__":
         int_offset = 24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
         
         #Plotting
-        if block_count == 3: 
+        if block_count == 2: 
             fig, (p_adjust1) = plt.subplots(nrows=1)
             fig, (rrc) = plt.subplots(nrows=1)
             fig.subplots_adjust(hspace = 1.0)
@@ -219,12 +221,116 @@ if __name__ == "__main__":
 
         # ---------------------RDS Data Processing--------------------------
         #Screening only needs to happen at block 0
+        bit_stream = np.zeros(int(len(symbols_I)/2))
+        if block_count == 0:
+            count_0_pos = 0
+            count_1_pos = 0 
+            for m in range(int(len(symbols_I)/4)): 
+                #Counts the Amount of doubles when the start position is 0
+                if((symbols_I[2*m] > 0 and symbols_I[2*m+1] > 0) or (symbols_I[2*m] < 0 and symbols_I[2*m+1]<0)):
+                    count_0_pos += 1
+                #Counts the Amount of doubles when the start position is 1 
+                elif((symbols_I[2*m+1] > 0 and symbols_I[2*m+2] > 0) or (symbols_I[2*m+1] < 0 and symbols_I[2*m+2]<0)):
+                    count_1_pos += 1
+            
+            print("Amount of doub when start 0 ", count_0_pos, " Amount of doub when 1 ", count_1_pos)
+            # Now decide which point is 
+            if(count_0_pos > count_1_pos): 
+                start_pos = 1
+            elif(count_1_pos > count_0_pos): 
+                start_pos = 0
+            print("Start position ", start_pos)
 
+        else: 
+            if flag_bit == 1:
+                symbols_I = np.insert(symbols_I, 0, remain_symbol, axis=0)
+        
+        #Converts the bits
+        flag_bit = 0 
+        for k in range(len(bit_stream)):
+            #Now figure out what each bit is 
+            if(start_pos+2*k+1 > len(symbols_I)-1):
+                break
+            #Should assign the bits 
+            if(symbols_I[2*k+start_pos] > symbols_I[2*k+1+start_pos]): 
+                bit_stream[k] = 1
+            elif(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos]): 
+                bit_stream[k] = 0
+            #print(bit_stream[k], " and ", k)
+        if(2*k+1+start_pos > len(symbols_I)-1):
+            print("Bit appended") 
+            flag_bit = 1 
+            remain_symbol = symbols_I[-1]
 
+        #Differential decoding
+        if block_count == 0:
+            prebit = bit_stream[0] 
+            offset = 1
+        else:
+            offset = 0 
+        diff_bits = np.zeros(len(bit_stream)-offset) 
 
+        #Does XOR on the bits
+        for t in range(len(diff_bits)): 
+            diff_bits[t] = (prebit and not bit_stream[t+offset]) or (not prebit and bit_stream[t+offset])
+            prebit = bit_stream[t+offset] 
+        #Set first bit to last bit to then have XOR performed on it 
+        prebit = bit_stream[-1]
+
+        #Frame Sync and Error detection 
+        #Need to check for sydromes: 
+        if block_count != 0:
+            diff_bits = np.insert(diff_bits, 0, prev_sync_bits, axis=0)
+
+        position = 0 
+        while True:
+            block = diff_bits[position:position+26]
+            #Below line used to test if this shit works correctly, and it do
+            potential_syndrome = np.zeros(10) 
+            #Does the binary matrix multiplication that uses XORs and ANDs
+            for i in range(len(potential_syndrome)):
+                    for j in range(26): 
+                        mult = block[j] and H[j,i]
+                        potential_syndrome[i] = (potential_syndrome[i] and not mult) or (not potential_syndrome[i] and mult)
+            #convert to int
+            potential_syndrome = potential_syndrome.astype(int)
+            #print(potential_syndrome)
+            if ((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]):
+                if(last_position == -1 or printposition-last_position == 26): 
+                    last_position = printposition
+                    print("Syndrome A at position ", printposition)
+                    last_position = printposition
+                else:
+                    print("False positive Syndrome A at position ", printposition)
+            elif ((potential_syndrome).tolist() == [1,1,1,1,0,1,0,1,0,0]):
+                if(last_position == -1 or printposition-last_position == 26): 
+                    print("Syndrome B at position ", printposition)
+                    last_position = printposition
+                else:
+                    print("False positive Syndrome B at position ", printposition)
+            elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,1,0,0]):
+                if(last_position == -1 or printposition-last_position == 26): 
+                    print("Syndrome C at position ", printposition)
+                    last_position = printposition
+                else:
+                    print("False positive Syndrome C at position ", printposition)
+            elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]):
+                if(last_position == -1 or printposition-last_position == 26): 
+                    print("Syndrome D at position ", printposition)
+                    last_position = printposition
+                else:
+                    print("False positive Syndrome D at position ", printposition)
+            #Breaks once it reaches the end
+            position += 1 
+            if( position+26 > len(diff_bits)):
+                break
+            printposition += 1 
+        #Creates list of bits not used 
+        prev_sync_bits = diff_bits[position-1::]
+        print(len(prev_sync_bits))
+
+        #Iterates through the blocks 
         block_count += 1
-
-
 
 # uncomment assuming you wish to show some plots
 plt.show()

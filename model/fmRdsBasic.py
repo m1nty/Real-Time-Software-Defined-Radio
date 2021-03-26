@@ -53,12 +53,12 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test5.raw"
+    in_fname = "../data/test6.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in float32 format. Block size is ", len(iq_data))
 
-    iq_data=iq_data[:3*307200]
+    iq_data=iq_data[:8*307200]
     # Additional params needed for our own functions
     i_pre = np.zeros(rf_taps-1) 
     q_pre = np.zeros(rf_taps-1)
@@ -127,7 +127,9 @@ if __name__ == "__main__":
     freq_centered = 114000
     # note, we also need the Q component to properly tune the PLL using constalation diagrams 
     # This works with what nicolici gave us 
-    post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, square_Fs, ncoScale = 0.5, phaseAdjust = math.pi/3.3-math.pi/1.5, normBandwidth = 0.001)
+    state_Pll =[0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+    phase_adj = math.pi/3.3-math.pi/1.5
+    post_Pll, post_Pll_Q, state_Pll =  fmPll(pre_Pll_rds, freq_centered, 240000, state_Pll, ncoScale = 0.5, phaseAdjust =phase_adj , normBandwidth = 0.001)
 
     # -----------------------Demodulation-------------------------------
     # Mixer 
