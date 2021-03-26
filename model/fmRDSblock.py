@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test5.raw"
+    in_fname = "../data/test6.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in float32 format. Block size is ", len(iq_data))
@@ -73,7 +73,6 @@ if __name__ == "__main__":
     # select a block_size that is in KB and
     # a multiple of decimation factors
     block_size = 307200
-    freq_centered = 114000
     block_count = 0
 
     # states needed for continuity in block processing
@@ -82,13 +81,43 @@ if __name__ == "__main__":
     state_phase = 0
     # add state as needed for the mono channel filter
 
+    # ****************************************************************** 
+    # -----------------------RDS States and Coeff-----------------------
+    # ******************************************************************
+    
     #Coefficents for extracting RDS data 
     extract_RDS_coeff = signal.firwin(rf_taps, [inital_RDS_lower_freq/(audio_Fs/2), inital_RDS_higher_freq/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
+    pre_state_extract = np.zeros(rf_taps-1) 
     #BPF coefficents after squaring non-linearity
     square_coeff = signal.firwin(rf_taps, [squared_lower_freq/(audio_Fs/2), squared_higher_freq/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
+    square_state =np.zeros(rf_taps-1)
+    #Pll values 
+    freq_centered =114000
+    phase_adj = math.pi/3.3-math.pi/1.5
+    state_Pll = np.zeros(6)
     #Coefficents for the LPF of fc 3000Hz
     lpf_coeff_rds = signal.firwin(rf_taps, cutoff_LPF/(audio_Fs/2), window=('hann'))
+    lpf_3k_state = np.zeros(rf_taps-1) 
+    lpf_3k_state_Q = np.zeros(rf_taps-1) 
+    #Values for rational resampler
+    upsample_val = 19
+    downsample_val = 80 
+    anti_img_coeff = signal.firwin(rf_taps, (57000/2)/((240000*19)/2), window=('hann'))
+    anti_img_state = np.zeros(rf_taps-1)
+    anti_img_state_Q = np.zeros(rf_taps-1)
+    #Values for RRC
+    rrc_Fs = 57000
+    rrc_taps = 151 
+    rrc_coeff = impulseResponseRootRaisedCosine(rrc_Fs, rrc_taps)
+    rrc_state = np.zeros(rrc_taps -1) 
+    rrc_state_Q = np.zeros(rrc_taps -1) 
+    #Values for clock recoverey
+    inital_offset = 0
+    final_symb = 0 
+    #differential decoding
 
+    #Frame sync
+    
     # if the number of samples in the last block is less than the block size
     # it is fine to ignore the last few samples from the raw IQ file
     while (block_count+1)*block_size < len(iq_data):
@@ -111,9 +140,75 @@ if __name__ == "__main__":
         # FM demodulator
         fm_demod, state_phase = fmDemodArctan(i_ds, q_ds, state_phase)
 
+        # ****************************************************************** 
+        # -----------------------RDS Data Processing------------------------ 
+        # ******************************************************************
+        
+        # ------------------------Extraction--------------------------------
+        # Performs convoloution to extract the data
+        extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,pre_state_extract)
+
+        # ---------------------Carrier Recovery-----------------------------
+        #Squaring Nonolinearity
+        #All this means is that we need to point why multiple each element by itself 
+        squared_rds = np.square(extract_rds)
+
+        #BPF
+        pre_Pll_rds,square_state = signal.lfilter(square_coeff,1.0,squared_rds,square_state)
+        
+        #PLL 
+        #NOTE Needa ass shit
+        post_Pll, post_Pll_Q =  fmPll(pre_Pll_rds, freq_centered, 240000, ncoScale = 0.5, phaseAdjust =phase_adj , normBandwidth = 0.001)
+
+        # -----------------------Demodulation-------------------------------
+        # Mixer 
+        #Just a mixer which is just some good old point wise multiplication 
+        #I component
+        mixed_rds = np.multiply(extract_rds, post_Pll[0:len(extract_rds):1])*2
+        #Q component
+        mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[0:len(extract_rds):1])*2
+
+        #LPF
+        #I Compent 
+        lpf_filt_rds,lpf_3k_state = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds,lpf_3k_state)
+        #Q Compent 
+        lpf_filt_rds_Q,lpf_3k_state_Q = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds_Q,lpf_3k_state_Q)
+
+        upsample_rds = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
+        upsample_rds_Q = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
+
+        #Rational Resampler
+        #Upsamples by 19
+        for i in range (len(lpf_filt_rds)):
+            upsample_rds[i*upsample_val] = lpf_filt_rds[i]
+            upsample_rds_Q[i*upsample_val] = lpf_filt_rds_Q[i]
+        #Downsample by 19 in order to to get a frequency of 57kHz  
+        #I Compent 
+        anti_img,anti_img_state= signal.lfilter(anti_img_coeff,1.0, upsample_rds,anti_img_state)
+        #Q Compent 
+        anti_img_Q,anti_img_state_Q= signal.lfilter(anti_img_coeff,1.0, upsample_rds_Q,anti_img_state_Q)
+        #Downsample by 19 in order to to get a frequency of 57kHz  
+        resample_rds = anti_img[::downsample_val]*upsample_val
+        resample_rds_Q = anti_img_Q[::downsample_val]*upsample_val
+
+        #RRC Filter
+        rrc_rds,rrc_state = signal.lfilter(rrc_coeff, 1.0, resample_rds,rrc_state)
+        #Q Component
+        rrc_rds_Q, rrc_state_Q= signal.lfilter(rrc_coeff, 1.0, resample_rds_Q,rrc_state_Q)
+
+        #Clock and data recovery
+        #TODO add some fancy shit for block processing 
+        #Need to sample the shit
+        #Check each 24 samples to try and identify the symbols
+        #Pretty sure this method is good 
+        if block_count == 0: 
+            int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
+        #Go to every 24th sample 
+        symbols_I = rrc_rds[int_offset::24]
+        symbols_Q = rrc_rds_Q[int_offset::24]
+
         block_count += 1
 
-    print('Finished processing the raw I/Q samples')
 
 
 # uncomment assuming you wish to show some plots
