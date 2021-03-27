@@ -53,12 +53,12 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test6.raw"
+    in_fname = "../data/test5.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in float32 format. Block size is ", len(iq_data))
 
-    iq_data=iq_data[:8*307200]
+    #iq_data=iq_data[:4*307200]
     # Additional params needed for our own functions
     i_pre = np.zeros(rf_taps-1) 
     q_pre = np.zeros(rf_taps-1)
@@ -228,6 +228,8 @@ if __name__ == "__main__":
         elif(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos]): 
             bit_stream[k] = 0
         #print(bit_stream[k], " and ", k)
+
+    print(bit_stream[0:150])
 
     #Differential decoding
     diff_bits = np.zeros(len(bit_stream)-1) 

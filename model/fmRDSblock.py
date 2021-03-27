@@ -54,11 +54,11 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test5.raw"
+    in_fname = "../data/test6.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in uint8 format. Block size is ", len(iq_data))
-    iq_data = iq_data[0:8*307200]
+    #iq_data = iq_data[0:8*307200]
 
     # coefficients for the front-end low-pass filter
     rf_coeff = signal.firwin(rf_taps, \
@@ -115,6 +115,8 @@ if __name__ == "__main__":
     inital_offset = 0
     final_symb = 0 
     #differential decoding
+    lonely_bit = 0 
+    front_bit = 0
     remain_symbol = 0.0
     #Frame sync
     printposition = 0 
@@ -199,8 +201,6 @@ if __name__ == "__main__":
         rrc_rds_Q, rrc_state_Q= signal.lfilter(rrc_coeff, 1.0, resample_rds_Q,zi=rrc_state_Q)
 
         #Clock and data recovery
-        #TODO add some fancy shit for block processing 
-        #NOTE This shit may be fucking dookie
         if block_count ==0:
             int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
         #Go to every 24th sample 
@@ -221,7 +221,6 @@ if __name__ == "__main__":
 
         # ---------------------RDS Data Processing--------------------------
         #Screening only needs to happen at block 0
-        bit_stream = np.zeros(int(len(symbols_I)/2))
         if block_count == 0:
             count_0_pos = 0
             count_1_pos = 0 
@@ -240,13 +239,17 @@ if __name__ == "__main__":
             elif(count_1_pos > count_0_pos): 
                 start_pos = 0
             print("Start position ", start_pos)
-
-        else: 
-            if flag_bit == 1:
-                symbols_I = np.insert(symbols_I, 0, remain_symbol, axis=0)
         
+        bit_stream = np.zeros(int(len(symbols_I)/2)-start_pos)
         #Converts the bits
         flag_bit = 0 
+        #Uses the last left over bit and first bit to get the proper value 
+        if(start_pos == 1 and block_count != 0):
+            if(lonely_bit > symbols_I[0]): 
+                front_bit = 1
+            elif(lonely_bit < symbols_I[0]): 
+                front_bit = 0
+        #Figures out what every bit is     
         for k in range(len(bit_stream)):
             #Now figure out what each bit is 
             if(start_pos+2*k+1 > len(symbols_I)-1):
@@ -256,11 +259,14 @@ if __name__ == "__main__":
                 bit_stream[k] = 1
             elif(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos]): 
                 bit_stream[k] = 0
-            #print(bit_stream[k], " and ", k)
-        if(2*k+1+start_pos > len(symbols_I)-1):
-            print("Bit appended") 
-            flag_bit = 1 
-            remain_symbol = symbols_I[-1]
+        #Sees if bit left over
+        if(start_pos == 1): 
+            #Should append to the front of array 
+            #When this is added it breaks alot. which is weird 
+            #It is appending correctly but for some reason it works v bad when we do append 
+            bit_stream = np.insert(bit_stream, 0, front_bit, axis=0)
+            lonely_bit = symbols_I[-1]
+        print(len(bit_stream))
 
         #Differential decoding
         if block_count == 0:
@@ -269,7 +275,7 @@ if __name__ == "__main__":
         else:
             offset = 0 
         diff_bits = np.zeros(len(bit_stream)-offset) 
-
+        print(len(diff_bits))
         #Does XOR on the bits
         for t in range(len(diff_bits)): 
             diff_bits[t] = (prebit and not bit_stream[t+offset]) or (not prebit and bit_stream[t+offset])
@@ -294,7 +300,7 @@ if __name__ == "__main__":
                         potential_syndrome[i] = (potential_syndrome[i] and not mult) or (not potential_syndrome[i] and mult)
             #convert to int
             potential_syndrome = potential_syndrome.astype(int)
-            #print(potential_syndrome)
+            #Checks if syndrome A
             if ((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]):
                 if(last_position == -1 or printposition-last_position == 26): 
                     last_position = printposition
@@ -302,18 +308,21 @@ if __name__ == "__main__":
                     last_position = printposition
                 else:
                     print("False positive Syndrome A at position ", printposition)
+            #Checks if syndrome B
             elif ((potential_syndrome).tolist() == [1,1,1,1,0,1,0,1,0,0]):
                 if(last_position == -1 or printposition-last_position == 26): 
                     print("Syndrome B at position ", printposition)
                     last_position = printposition
                 else:
                     print("False positive Syndrome B at position ", printposition)
+            #Checks if syndrome C
             elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,1,0,0]):
                 if(last_position == -1 or printposition-last_position == 26): 
                     print("Syndrome C at position ", printposition)
                     last_position = printposition
                 else:
                     print("False positive Syndrome C at position ", printposition)
+            #Checks if syndrome D
             elif ((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]):
                 if(last_position == -1 or printposition-last_position == 26): 
                     print("Syndrome D at position ", printposition)
@@ -322,12 +331,11 @@ if __name__ == "__main__":
                     print("False positive Syndrome D at position ", printposition)
             #Breaks once it reaches the end
             position += 1 
-            if( position+26 > len(diff_bits)):
+            if( position+26 > len(diff_bits)-1):
                 break
             printposition += 1 
         #Creates list of bits not used 
         prev_sync_bits = diff_bits[position-1::]
-        print(len(prev_sync_bits))
 
         #Iterates through the blocks 
         block_count += 1
