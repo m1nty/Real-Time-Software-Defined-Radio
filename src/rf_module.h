@@ -18,5 +18,4 @@ Ontario, Canada
 
 // declaration of a function prototypes
 void fmDemodArctan(const std::vector<float> &I, const std::vector<float> &Q,std::vector<float> &prev_phase, std::vector<float> &fm_demod);
-
 #endif // DY4_FILTER_H

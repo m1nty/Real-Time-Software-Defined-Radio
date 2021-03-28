@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
-    in_fname = "../data/test1.raw"
+    in_fname = "../data/test4.raw"
     iq_data = np.fromfile(in_fname, dtype='float32')
     print("Read raw RF data from \"" + in_fname + "\" in float32 format")
 
@@ -66,6 +66,8 @@ if __name__ == "__main__":
     audio_data = np.array([]) # to be updated by you during in-lab
     audio_pre_state = np.zeros(audio_taps-1)
     stereo_data = np.array([])
+    combined_l = np.array([])
+    combined_r = np.array([])
     stereo_pre_state = np.zeros(audio_taps-1)
 
     # INITIALIZE STATE VARIABLES FOR FIRST BLOCK
@@ -155,17 +157,20 @@ if __name__ == "__main__":
 
         #LPF
         stereo_coeff = signal.firwin(rf_taps, 16e3/(audio_Fs/2), window=('hann'))
-        stereo_filt, stereo_pre_state = signal.lfilter(stereo_coeff, 1.0, fm_demod,zi=stereo_pre_state)
+        stereo_filt, stereo_pre_state = signal.lfilter(stereo_coeff, 1.0, mixed,zi=stereo_pre_state)
         #Decimation
         stereo_block = stereo_filt[::5]
         stereo_data = np.concatenate((stereo_data, stereo_block))
 
         #Combiner
-        combined_l, combined_r = audio_data, audio_data
+        combined_l_block, combined_r_block = audio_block, audio_block
 
-        for i in range(len(audio_data)):
-            combined_l[i] = (audio_data[i]+stereo_data[i])/2
-            combined_r[i] = (audio_data[i]-stereo_data[i])/2
+        for i in range(len(audio_block)):
+            combined_l_block[i] = (audio_block[i]+stereo_block[i])/2
+            combined_r_block[i] = (audio_block[i]-stereo_block[i])/2
+        
+        combined_l = np.concatenate((combined_l, combined_l_block))
+        combined_r = np.concatenate((combined_r, combined_r_block))
 
         # to save runtime select the range of blocks to log iq_data
         # this includes both saving binary files as well plotting PSD
@@ -211,7 +216,7 @@ if __name__ == "__main__":
             ax1.set_ylabel('PSD (db/Hz)')
             ax1.set_title('Extracted Stereo Channel')
 
-            ax2.psd(mixed, NFFT=512, Fs=(rf_Fs/rf_decim)/1e3)
+            ax2.psd(mixed, NFFT=512, Fs=(audio_Fs/audio_decim)/1e3)
             ax2.set_ylabel('PSD (db/Hz)')
             ax2.set_title('cos(α - β) and cos(α + β) Components')
 

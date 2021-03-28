@@ -7,52 +7,61 @@ Ontario, Canada
 */
 #include "dy4.h"
 #include "iofunc.h"
+#include "helper.h"
 
-
-//fmPLL without state
-void fmPLL(std::vector<float> &ncoOut, std::vector<float> pllIn, float freq, float Fs, float ncoScale = 1.0, float phaseAdjust = 0.0, float normBandwidth = 0.01){
+void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state &state){
+    
     float Cp = 2.666;
 	float Ci = 3.555;
 
-	// gain for the proportional term
+	// Gain Initilizations
+    float Ki = (normBandwidth*normBandwidth)*Ci;
 	float Kp = (normBandwidth)*Cp;
-	// gain for the integrator term
-	float Ki = (normBandwidth*normBandwidth)*Ci;
 
-	// output array for the NCO
 	ncoOut.resize(pllIn.size()+1);
 
-	// initialize internal state
-	float integrator = 0.0;
-	float phaseEst = 0.0;
-	float feedbackI = 1.0;
-	float feedbackQ = 0.0;
-	ncoOut[0] = 1.0;
-	float trigOffset = 0;
-    float errorI, errorQ, errorD;
-    float trigArg;
-	// note: state saving will be needed for block processing
+    //PLL State Type Initializer
+    float integrator = state.integrator;
+    float phaseEst = state.phaseEst;
+    float feedbackI = state.feedbackI;
+    float feedbackQ = state.feedbackQ;
+    ncoOut[0] = state.ncoLast;
+    float trigOffset = state.trigOffset;
+
+    // float phaseAdjust = 0.0;
 
 	for (int k=0; k<pllIn.size(); k++)
     {
-
-		// phase detector
-		errorI = pllIn[k] * (+feedbackI);  // complex conjugate of the
-		errorQ = pllIn[k] * (-feedbackQ) ; // feedback complex exponential
-
-		// four-quadrant arctangent discriminator for phase error detection
-		errorD = atan2(errorQ, errorI);
+		float errorI = pllIn[k] * (+feedbackI);  // complex conjugate of the
+		float errorQ = pllIn[k] * (-feedbackQ); // feedback complex exponential
+    
+    	// four-quadrant arctangent discriminator for phase error detection
+		float errorD = atan2(errorQ, errorI);
 
 		// loop filter
-		integrator = integrator + Ki*errorD;
+		integrator += Ki*errorD;
 
 		// update phase estimate
-		phaseEst = phaseEst + Kp*errorD + integrator;
+		phaseEst += Kp*errorD + integrator;
 
 		// internal oscillator
-		trigArg = 2*PI*(freq/Fs)*(trigOffset+k+1) + phaseEst;
+		float trigArg = 2*PI*(freq/Fs)*(trigOffset+k+1)+phaseEst;
 		feedbackI = cos(trigArg);
 		feedbackQ = sin(trigArg);
 		ncoOut[k+1] = cos(trigArg*ncoScale + phaseAdjust);
     }
+
+    //Update State Variables so they are saved to the struct object in main    
+    state.integrator = integrator;
+    state.phaseEst = phaseEst;
+    state.feedbackI = feedbackI;
+    state.feedbackQ = feedbackQ;
+    state.ncoLast= ncoOut[ncoOut.size()-1];
+    state.trigOffset= trigOffset + pllIn.size();
+
+    //Resize to return 1:end of array
+    ncoOut = std::vector<float>(ncoOut.begin(), ncoOut.end()-1);
+
+    //block_data = std::vector<float>(block_data.begin()+1,block_data.end());
+
 }
