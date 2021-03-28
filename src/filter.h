@@ -25,4 +25,6 @@ void convolveWithDecimIQ(std::vector<float> &y, const std::vector<float> &x, con
 
 void convolveWithDecimMode1(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample);
 
+void convolveWithDecimPointer(std::vector<float> &y, float* &x, const unsigned int block_size, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num); 
+
 #endif // DY4_FILTER_H

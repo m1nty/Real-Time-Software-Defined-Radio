@@ -121,9 +121,39 @@ void convolveWithDecim(std::vector<float> &y, const std::vector<float> &x, const
 	//Assigns next zi value 
 	for(auto i = 0; i < zi.size(); i++){
 		zi[i] = x[x.size()-zi.size()-1+i]; 
-}
+	}
 }
 
+//Downsamples and does convoloution at the same time in order to go speedy 
+void convolveWithDecimPointer(std::vector<float> &y, float* &x, const unsigned int block_size, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num)
+{
+	//Creates vector for down sampled data
+	y.resize(block_size/decim_num);
+	//Loops through vlaues to do convoloution
+        int count;
+        for (auto n = 0; n < y.size(); n++)
+	{
+                count = 0;
+                for (auto k = 0; k < h.size(); k++)
+		{
+			if((decim_num*n-k >= 0) && (decim_num*n-k < block_size))
+			{
+				//Multiplies n by the downsample number so not every value is used only the samples we need
+                                y[n] += (float)(*(x+(decim_num*n-k)))*h[k];
+			}
+			//Previous state data
+			else
+			{
+                                y[n] += zi[zi.size()-1-count]*h[k];
+				count += 1;
+			}
+                }
+        }
+	//Assigns next zi value 
+	for(auto i = 0; i < zi.size(); i++){
+		zi[i] = x[block_size-zi.size()-1+i]; 
+	}
+}
 //Meant to combine the the convoloution of both I and Q samples. Hopefully faster but who knows in this economy 
 void convolveWithDecimIQ(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi,std::vector<float> &y1, const std::vector<float> &x1, std::vector<float> &zi1, const int &decim_num)
 {

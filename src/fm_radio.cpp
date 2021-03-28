@@ -18,6 +18,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #include <iostream> 
 
 #define QUEUE_BLOCKS 5 
+#define BLOCK_SIZE 307200 
 
 //NOTE FOR WHOEVER TESTING
 //To run in mode 0 type: cat ../data/my_samples_953.raw | ./experiment | aplay -c 1 -f S16_LE -r 48000
@@ -26,13 +27,14 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 //Rf thread
 //TODO Eventuall add these functions to a seperate file so its less ugly
 //Should be ready for mode 1. All that needs to be done is assign the sampling frequency 
-void rf_thread(int &mode, std::queue<std::vector<float>> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
+void rf_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
 {
 	//Need to set up conditional for this 
 	int rf_Fs;
 	//Depending on the mode sets the sampling frequency to the corresponding value
 	if(mode == 1) rf_Fs = 2500000;
 	else rf_Fs = 2400000;
+
 	
 	//These variables are the same no matter what
 	int rf_Fc = 100000;
@@ -40,12 +42,14 @@ void rf_thread(int &mode, std::queue<std::vector<float>> &sync_queue, std::mutex
 	int rf_decim = 10;
 	int audio_decim = 5; 
 	unsigned int block_id = 0;
-	unsigned int block_size = 1024 * rf_decim * audio_decim * 2;
+	unsigned int block_size = BLOCK_SIZE;
 	//define nessisary vectors
 	std::vector<float> iq_data, i_data, q_data,iq_filter_coeff,i_inital, q_inital;
 	std::vector<float> i_filter, q_filter, i_down, q_down;
 	std::vector<float> prev_phase,demod_data; 
 
+	//Stuff for pointer implementation
+	static float queue_block[QUEUE_BLOCKS][BLOCK_SIZE];
 	//Resize inital states used in convoloution
 	prev_phase.resize(2,0.0);
 	i_inital.resize(rf_taps-1,0.0);
@@ -75,17 +79,25 @@ void rf_thread(int &mode, std::queue<std::vector<float>> &sync_queue, std::mutex
 		convolveWithDecimIQ(i_filter, i_data, iq_filter_coeff, i_inital,q_filter, q_data, q_inital, rf_decim);
 		//convolveWithDecim(q_filter, q_data, iq_filter_coeff, q_inital, rf_decim);
 
+		unsigned int queue_entry = block_id % QUEUE_BLOCKS;
 		//Demoadulate data
-		fmDemodArctan(i_filter, q_filter, prev_phase, demod_data);
+		float * pointer_block = &queue_block[queue_entry][0];
+		fmDemodArctan(i_filter, q_filter, prev_phase, demod_data, pointer_block);
+		
+		//Pointer stuff
+		//for(unsigned int t = 0; t<demod_data.size(); t++)
+		//{
+		//	queue_block[queue_entry][t] = demod_data[t];
+		//}
 
 		//If queue is full should wait till it is empty
 		std::unique_lock<std::mutex> queue_lock(radio_mutex);
-		if(sync_queue.size() == QUEUE_BLOCKS)
+		if(sync_queue.size() == QUEUE_BLOCKS-1)
 		{
 			cvar.wait(queue_lock);
 		}
 		//push vector onto queue 
-		sync_queue.push(demod_data);
+		sync_queue.push((void *)&queue_block[queue_entry][0]);
 
 		//Fills with zeros
 		std::fill(i_filter.begin(), i_filter.end(), 0);
@@ -108,7 +120,7 @@ void rf_thread(int &mode, std::queue<std::vector<float>> &sync_queue, std::mutex
 
 //Thread for mono and stero 
 //Need to add all the shit for mode 0  
-void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
+void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
 {
 	//Depending on the mode sets the sampling frequency to the corresponding value
 	int rf_decim = 10;
@@ -118,7 +130,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 	int audio_taps_1 = 151; 
 	int audio_decim = 5; 
 	int stereo_decim = 5; 
-	unsigned int block_size = 1024*rf_decim*audio_decim*2;
+	unsigned int block_size = BLOCK_SIZE;
 
 	unsigned int block_id = 0;
 	int audio_up = 1;
@@ -143,7 +155,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 	//Sets up nessisary vectors 
 	std::vector<float> mono_coeff,audio_inital,audio_block, audio_filter;
 	std::vector<float> stereo_coeff,recovery_initial,stereo_initial,extraction_initial, recovery_coeff, extraction_coeff;
-	std::vector<float> stereo_lr, stereo_filt, stereo_data, bpf_recovery, recovery_pll, bpf_extraction, mixed;
+	std::vector<float> stereo_lr, stereo_filt, stereo_data, bpf_recovery, recovery_pll, bpf_extraction, mixed,demod_data;
 
 	std::vector<short int> audio_data;
 	
@@ -153,8 +165,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 	recovery_initial.resize(audio_taps-1,0.0);
 	stereo_initial.resize(audio_taps-1,0.0);
 	extraction_initial.resize(audio_taps-1,0.0);
-
-	std::vector<float> block99;
+	demod_data.resize(block_size/20);
 
 	mixed.resize(5120,0.0);
 	// std::cerr << "audio_Fs = " << audio_Fs << std::endl;
@@ -180,7 +191,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 			cvar.wait(queue_lock);
 		}
 		//Assigns front of quene to vector
-		std::vector<float> demod_data = sync_queue.front();
+		float *ptr_block = (float *)sync_queue.front();
 		//Pops the value of the queue 
 		sync_queue.pop();
 		queue_lock.unlock();
@@ -219,14 +230,14 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 		else
 		{
 			//Gets mono Data
-			convolveWithDecim(audio_block, demod_data, mono_coeff, audio_inital, audio_decim);
+			convolveWithDecimPointer(audio_block, ptr_block,BLOCK_SIZE/20, mono_coeff, audio_inital, audio_decim);
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
-			convolveWithDecim(bpf_recovery, demod_data, recovery_coeff, recovery_initial, 1);
+			convolveWithDecimPointer(bpf_recovery, ptr_block,BLOCK_SIZE/20, recovery_coeff, recovery_initial, 1);
 			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
 
 			//-----------------------STEREO CHANNEL EXTRACTION-------------------------------
-			convolveWithDecim(bpf_extraction, demod_data, extraction_coeff, extraction_initial, 1);
+			convolveWithDecimPointer(bpf_extraction,ptr_block,BLOCK_SIZE/20 , extraction_coeff, extraction_initial, 1);
 
 			//-----------------------STEREO PROCESSING-------------------------------
 			//Mixing
@@ -316,7 +327,7 @@ int main(int argc, char* argv[])
 	}
 
 	//Define stuff for threads
-	std::queue<std::vector<float>> sync_queue;
+	std::queue<void *> sync_queue;
 	std::mutex radio_mutex;
 	std::condition_variable cvar; 
 
