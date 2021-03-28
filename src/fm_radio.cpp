@@ -115,6 +115,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 	int audio_Fs = 240000;
 	int audio_Fc = 16000;
 	int audio_taps = 151; 
+	int audio_taps_1 = 151; 
 	int audio_decim = 5; 
 	int stereo_decim = 5; 
 	unsigned int block_size = 1024*rf_decim*audio_decim*2;
@@ -161,12 +162,14 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 	//Creates the filter coefficents and then
 	//Need to scale this when with mono mode 1
 	impulseResponseLPF(audio_Fs, audio_Fc, audio_taps, mono_coeff);
-	impulseResponseBPF(18.5e3, 19.5e3, audio_Fs, audio_taps, recovery_coeff);
-	impulseResponseBPF(22e3, 54e3, audio_Fs, audio_taps, extraction_coeff);
+	impulseResponseBPF(18.5e3, 19.5e3, audio_Fs, audio_taps_1, recovery_coeff);
+	impulseResponseBPF(22e3, 54e3, audio_Fs, audio_taps_1, extraction_coeff);
 	impulseResponseLPF(audio_Fs, audio_Fc, audio_taps, stereo_coeff);
 
-	//randome var
+	//for parcebels theorm
 	int mult = 1;
+	
+	//Loop where processes occur
 	while (true) 
 	{
 		//Creates lock
@@ -176,77 +179,72 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 		{
 			cvar.wait(queue_lock);
 		}
+		//Assigns front of quene to vector
+		std::vector<float> demod_data = sync_queue.front();
+		//Pops the value of the queue 
+		sync_queue.pop();
+		queue_lock.unlock();
+		cvar.notify_one();
 
 		//Mode 1, with all the upsamping and pull shit 
 		if(mode == 1)
 		{
-			std::vector<float> demod_data = sync_queue.front();
 			convolveWithDecimMode1(audio_block, demod_data, mono_coeff, audio_inital, audio_decim, audio_up);
 			mult = 24;
 
-
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
 			convolveWithDecim(bpf_recovery, demod_data, recovery_coeff, recovery_initial, 1);
-        	fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
+			fmPLL(recovery_pll, bpf_recovery, 19e3, 250e3,2.0,0.0, 0.01,statePLL);
 
 			//-----------------------STEREO CHANNEL EXTRACTION-------------------------------
 			convolveWithDecim(bpf_extraction, demod_data, extraction_coeff, extraction_initial, 1);
 
 			//-----------------------STEREO PROCESSING-------------------------------
 			//Mixing
-
-			for (int i = 0; i <bpf_extraction.size();i++){
+			for (int i = 0; i < bpf_extraction.size();i++)
+			{
 				mixed[i] = bpf_extraction[i]*recovery_pll[i];
 			}		
 			//LPF
-			convolveWithDecim(stereo_filt, mixed, stereo_coeff, stereo_initial,stereo_decim);
-
-
+			convolveWithDecimMode1(stereo_filt, mixed, stereo_coeff, stereo_initial,stereo_decim,audio_up);
 			//Combiner
 			stereo_lr.resize(2*audio_block.size());
-			for(int i = 0 ; i<audio_block.size(); i++){
+			for(int i = 0 ; i < audio_block.size(); i++)
+			{
 				stereo_lr[2*i] = (audio_block[i] + stereo_filt[i])/2; // left channel
 				stereo_lr[2*i+1] = (audio_block[i] - stereo_filt[i])/2; // right channel
-			
 			}
 		}
 		//if in mode 0 
 		else
 		{
-			std::vector<float> demod_data = sync_queue.front();
+			//Gets mono Data
 			convolveWithDecim(audio_block, demod_data, mono_coeff, audio_inital, audio_decim);
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
 			convolveWithDecim(bpf_recovery, demod_data, recovery_coeff, recovery_initial, 1);
-        	fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
+			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
 
 			//-----------------------STEREO CHANNEL EXTRACTION-------------------------------
 			convolveWithDecim(bpf_extraction, demod_data, extraction_coeff, extraction_initial, 1);
 
 			//-----------------------STEREO PROCESSING-------------------------------
 			//Mixing
-
-			for (int i = 0; i <bpf_extraction.size();i++){
+			for (int i = 0; i <bpf_extraction.size();i++)
+			{
 				mixed[i] = bpf_extraction[i]*recovery_pll[i];
 			}		
 			//LPF
 			convolveWithDecim(stereo_filt, mixed, stereo_coeff, stereo_initial,stereo_decim);
 
-
 			//Combiner
 			stereo_lr.resize(2*audio_block.size());
-			for(int i = 0 ; i<audio_block.size(); i++){
+			for(int i = 0 ; i<audio_block.size(); i++)
+			{
 				stereo_lr[2*i] = (audio_block[i] + stereo_filt[i])/2; // left channel
 				stereo_lr[2*i+1] = (audio_block[i] - stereo_filt[i])/2; // right channel
-			
 			}
 		}
-		
-		//Pops the value of the queue 
-		sync_queue.pop();
-
-		queue_lock.unlock();
-		cvar.notify_one();
 		
 		//Write blocks to stdout
 		audio_data.resize(stereo_lr.size());
@@ -260,7 +258,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 			//Cast the value to short int for standard out and then scale it
 			else 
 			{
-				audio_data[l] = static_cast<short int>(stereo_lr[l] *16384);
+				audio_data[l] = static_cast<short int>(stereo_lr[l] *16384*mult);
 			}
 		}
 		
