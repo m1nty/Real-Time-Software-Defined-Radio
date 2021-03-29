@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # read the raw IQ data from the recorded file
     # IQ data is normalized between -1 and +1 and interleaved
     # in_fname = "../data/iq_samples.raw"
-    in_fname = "../data/test6.raw"
+    in_fname = "../data/samples_rds_1029.raw"
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in uint8 format. Block size is ", len(iq_data))
@@ -336,6 +336,7 @@ if __name__ == "__main__":
             printposition += 1 
         #Creates list of bits not used 
         prev_sync_bits = diff_bits[position-1::]
+        print(len(prev_sync_bits))
 
         #Iterates through the blocks 
         block_count += 1

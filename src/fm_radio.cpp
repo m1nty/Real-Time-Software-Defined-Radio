@@ -27,7 +27,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 //Rf thread
 //TODO Eventuall add these functions to a seperate file so its less ugly
 //Should be ready for mode 1. All that needs to be done is assign the sampling frequency 
-void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
+void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
 {
 	//Need to set up conditional for this 
 	int rf_Fs;
@@ -86,25 +86,55 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		
 		std::unique_lock<std::mutex> queue_lock(radio_mutex);
 		//Probs not right but issa attempt
-		if(sync_queue.size() == QUEUE_BLOCKS-1 || rds_queue.size() == QUEUE_BLOCKS-1)
+		if(mode == 1)
 		{
-			cvar.wait(queue_lock);
+			if(sync_queue.size() == QUEUE_BLOCKS-1)
+			{
+				cvar.wait(queue_lock);
+			}
+			sync_queue.push((void *)&queue_block[queue_entry][0]);
+
+			//Fills with zeros
+			std::fill(i_filter.begin(), i_filter.end(), 0);
+			std::fill(q_filter.begin(), q_filter.end(), 0);
+			
+			//iterate block id
+			block_id ++;
+			
+			//Unlock and notify 
+			queue_lock.unlock();
+			cvar.notify_one();
 		}
-		//push vector onto queue 
-		sync_queue.push((void *)&queue_block[queue_entry][0]);
-		rds_queue.push((void *)&queue_block[queue_entry][0]);
+		else
+		{
+			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) //|| sync_queue.size() != rds_queue.size())
+			{
+				//std::cerr << "Issue so need to lock" << std::endl;
+				if(sync_queue.size() == QUEUE_BLOCKS-1)
+					cvar.wait(queue_lock);
+				if(rds_queue.size() == QUEUE_BLOCKS-1)
+					cvar1.wait(queue_lock);
+			}
+			//if(rds_queue.size() == QUEUE_BLOCKS-1)
+			//{
+			//	cvar1.wait(queue_lock);
+			//}
+			//push vector onto queue 
+			sync_queue.push((void *)&queue_block[queue_entry][0]);
+			rds_queue.push((void *)&queue_block[queue_entry][0]);
 
-		//Fills with zeros
-		std::fill(i_filter.begin(), i_filter.end(), 0);
-		std::fill(q_filter.begin(), q_filter.end(), 0);
-		
-		//iterate block id
-		block_id ++;
-		
-		//Unlock and notify 
-		queue_lock.unlock();
-		cvar.notify_one();
-
+			//Fills with zeros
+			std::fill(i_filter.begin(), i_filter.end(), 0);
+			std::fill(q_filter.begin(), q_filter.end(), 0);
+			
+			//iterate block id
+			block_id ++;
+			
+			//Unlock and notify 
+			queue_lock.unlock();
+			cvar.notify_one();
+			cvar1.notify_one();
+		}
 		//If nothing at STD in it breaks
 		if((std::cin.rdstate()) != 0)
 		{
@@ -344,7 +374,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		std::vector<int> potential_syndrome,block,prev_sync_bits;
 		potential_syndrome.resize(10);
 		block.resize(26);
-		prev_sync_bits.resize(17);
+		prev_sync_bits.resize(27);
 		std::vector<std::vector<int>> H {{1,0,0,0,0,0,0,0,0,0},{0,1,0,0,0,0,0,0,0,0},{0,0,1,0,0,0,0,0,0,0},{0,0,0,1,0,0,0,0,0,0},{0,0,0,0,1,0,0,0,0,0},{0,0,0,0,0,1,0,0,0,0},{0,0,0,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,1,0,0},{0,0,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,0,0,0,1},{1,0,1,1,0,1,1,1,0,0},{0,1,0,1,1,0,1,1,1,0},{0,0,1,0,1,1,0,1,1,1},{1,0,1,0,0,0,0,1,1,1},{1,1,1,0,0,1,1,1,1,1},{1,1,0,0,0,1,0,0,1,1},{1,1,0,1,0,1,0,1,0,1},{1,1,0,1,1,1,0,1,1,0},{0,1,1,0,1,1,1,0,1,1},{1,0,0,0,0,0,0,0,0,1},{1,1,1,1,0,1,1,1,0,0}, {0,1,1,1,1,0,1,1,1,0},{0,0,1,1,1,1,0,1,1,1},{1,0,1,0,1,0,0,1,1,1},{1,1,1,0,0,0,1,1,1,1}, {1,1,0,0,0,1,1,0,1,1}};
 		std::vector<int> syndrome_A {1,1,1,1,0,1,1,0,0,0};
 		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
@@ -405,10 +435,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			{
 				mixed[m] = post_Pll[m] * extract_rds[m];
 			}
-			
 			//LPF
 			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1.0);
-			
 
 			//Need to use the concoloution from mode 1 for upsampling
 			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
@@ -498,7 +526,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				prebit = bit_stream[t+offset];
 			}
 
-			
 			//From Sync
 			if(block_id != 0){
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
@@ -507,14 +534,16 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			position = 0;
 			while(true){
 				//
-				for(unsigned int y = position; position < position+26; y++)
+				for(unsigned int y = position; y < position+26; y++)
 				{
 					block[y-position] = diff_bits[y];
 				}
-				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++){
-				    for(unsigned int j = 0 ; j<26 ; j++){
-					potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
-				    }
+				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
+				{
+					for(unsigned int j = 0 ; j<26 ; j++)
+					{
+						potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
+					}
 				}
 				//convert to int
 				//potential_syndrome = static_cast<short int>(potential_syndrome);
@@ -622,7 +651,7 @@ int main(int argc, char* argv[])
 	std::queue<void *> sync_queue;
 	std::queue<void *> rds_queue;
 	std::mutex radio_mutex;
-	std::condition_variable cvar; 
+	std::condition_variable cvar,cvar1; 
 
 	//THIS IS STUFF FOR PLOTTING IN CASE WE NEEDA DO THAT 
 	//define values needed for processing
@@ -633,9 +662,9 @@ int main(int argc, char* argv[])
 	std::vector<float> psd_est1, freq1;
 	
 	//Creates threads
-	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar));
+	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar),std::ref(cvar1));
 	std::thread mono_stero = std::thread(mono_stero_thread, std::ref(mode), std::ref(sync_queue), std::ref(radio_mutex), std::ref(cvar));
-	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar));
+	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar1));
 
 	//Once all standard in blocks have been read, threads are joined
 	rf.join();
