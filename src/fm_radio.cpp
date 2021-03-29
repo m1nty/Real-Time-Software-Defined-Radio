@@ -130,13 +130,13 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	unsigned int block_id = 0;
 	int audio_up = 1;
 
-	pll_state statePLL;
-	statePLL.integrator = 0.0;
-	statePLL.phaseEst = 0.0;
-	statePLL.feedbackI = 1.0;
-	statePLL.feedbackQ = 0.0;
-	statePLL.trigOffset = 0.0;
-	statePLL.ncoLast = 1.0;
+	pll_state_type pll_state;
+	pll_state.integrator = 0.0;
+	pll_state.phaseEst = 0.0;
+	pll_state.feedbackI = 1.0;
+	pll_state.feedbackQ = 0.0;
+	pll_state.trigOffset = 0.0;
+	pll_state.ncoLast = 1.0;
 	
 	//If mode 1, change som values, and define the up sampler value 
 	if (mode == 1) 
@@ -200,7 +200,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
 			convolveWithDecimPointer(bpf_recovery, ptr_block,BLOCK_SIZE/20, recovery_coeff, recovery_initial, 1);
-			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
+			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,pll_state);
 
 			//-----------------------STEREO CHANNEL EXTRACTION-------------------------------
 			convolveWithDecimPointer(bpf_extraction,ptr_block,BLOCK_SIZE/20 , extraction_coeff, extraction_initial, 1);
@@ -229,7 +229,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
 			convolveWithDecimPointer(bpf_recovery, ptr_block,BLOCK_SIZE/20, recovery_coeff, recovery_initial, 1);
-			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
+			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,pll_state);
 
 			//-----------------------STEREO CHANNEL EXTRACTION-------------------------------
 			convolveWithDecimPointer(bpf_extraction,ptr_block,BLOCK_SIZE/20 , extraction_coeff, extraction_initial, 1);
@@ -309,13 +309,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		//PLL
 		float freq_centered = 114000;
 		float phase_adj = PI/3.3-PI/1.5;
-		pll_state statePLL;
-		statePLL.integrator = 0.0;
-		statePLL.phaseEst = 0.0;
-		statePLL.feedbackI = 1.0;
-		statePLL.feedbackQ = 0.0;
-		statePLL.trigOffset = 0.0;
-		statePLL.ncoLast = 1.0;
+		pll_state_type pll_state;
+		pll_state.integrator = 0.0;
+		pll_state.phaseEst = 0.0;
+		pll_state.feedbackI = 1.0;
+		pll_state.feedbackQ = 0.0;
+		pll_state.trigOffset = 0.0;
+		pll_state.ncoLast = 1.0;
 		//LPF 
 		float cutoff_LPF = 3000; 
 		//Rational Resampler
@@ -396,7 +396,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			}
 			//Second BPF
 			convolveWithDecim(pre_Pll_rds, extract_rds, square_coeff, square_state, 1.0);
-			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,statePLL);
+			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
 			//mixing 

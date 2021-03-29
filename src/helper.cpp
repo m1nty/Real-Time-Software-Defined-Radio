@@ -9,7 +9,7 @@ Ontario, Canada
 #include "iofunc.h"
 #include "helper.h"
 
-void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state &state){
+void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state_type &pll_state){
     
     float Cp = 2.666;
 	float Ci = 3.555;
@@ -21,47 +21,36 @@ void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, fl
 	ncoOut.resize(pllIn.size()+1);
 
     //PLL State Type Initializer
-    float integrator = state.integrator;
-    float phaseEst = state.phaseEst;
-    float feedbackI = state.feedbackI;
-    float feedbackQ = state.feedbackQ;
-    ncoOut[0] = state.ncoLast;
-    float trigOffset = state.trigOffset;
-
-    // float phaseAdjust = 0.0;
+    float integrator = pll_state.integrator;
+    float phaseEst = pll_state.phaseEst;
+    float feedbackI = pll_state.feedbackI;
+    float feedbackQ = pll_state.feedbackQ;
+    ncoOut[0] = pll_state.ncoLast;
+    float trigOffset = pll_state.trigOffset;
 
 	for (int k=0; k<pllIn.size(); k++)
     {
-		float errorI = pllIn[k] * (+feedbackI);  // complex conjugate of the
-		float errorQ = pllIn[k] * (-feedbackQ); // feedback complex exponential
-    
-    	// four-quadrant arctangent discriminator for phase error detection
-		float errorD = atan2(errorQ, errorI);
+		float errorI = pllIn[k] * (+feedbackI);
+		float errorQ = pllIn[k] * (-feedbackQ);
+    	float errorD = atan2(errorQ, errorI);  //Phase Error Detector
+		integrator += Ki*errorD; //Must increment by integrator gain
+		phaseEst += Kp*errorD + integrator; //Phase Estimate Update
 
-		// loop filter
-		integrator += Ki*errorD;
-
-		// update phase estimate
-		phaseEst += Kp*errorD + integrator;
-
-		// internal oscillator
+		//Oscillator Config
 		float trigArg = 2*PI*(freq/Fs)*(trigOffset+k+1)+phaseEst;
 		feedbackI = cos(trigArg);
 		feedbackQ = sin(trigArg);
 		ncoOut[k+1] = cos(trigArg*ncoScale + phaseAdjust);
     }
 
-    //Update State Variables so they are saved to the struct object in main    
-    state.integrator = integrator;
-    state.phaseEst = phaseEst;
-    state.feedbackI = feedbackI;
-    state.feedbackQ = feedbackQ;
-    state.ncoLast= ncoOut[ncoOut.size()-1];
-    state.trigOffset= trigOffset + pllIn.size();
+    //PLL State Type Edits  
+    pll_state.integrator = integrator;
+    pll_state.phaseEst = phaseEst;
+    pll_state.feedbackI = feedbackI;
+    pll_state.feedbackQ = feedbackQ;
+    pll_state.ncoLast= ncoOut[ncoOut.size()-1];
+    pll_state.trigOffset= trigOffset + pllIn.size();
 
-    //Resize to return 1:end of array
+    //ncOut Resize
     ncoOut = std::vector<float>(ncoOut.begin(), ncoOut.end()-1);
-
-    //block_data = std::vector<float>(block_data.begin()+1,block_data.end());
-
 }

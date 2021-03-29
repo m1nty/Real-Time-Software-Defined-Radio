@@ -14,10 +14,10 @@ Ontario, Canada
 #include <complex>
 #include <cmath>
 
-struct pll_state{
+struct pll_state_type{
 	float integrator, phaseEst, feedbackI, feedbackQ, trigOffset,ncoLast;
 };
 
-void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth, pll_state &state);
+void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth, pll_state_type &pll_state);
 
 #endif
