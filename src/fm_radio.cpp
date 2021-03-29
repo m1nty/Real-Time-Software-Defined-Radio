@@ -156,7 +156,7 @@ void mono_stero_thread(int &mode, std::queue<std::vector<float>> &sync_queue, st
 
 	std::vector<float> block99;
 
-	mixed.resize(5120,0.0);
+	mixed.resize(block_size/20,0.0);
 	// std::cerr << "audio_Fs = " << audio_Fs << std::endl;
 
 	//Creates the filter coefficents and then
