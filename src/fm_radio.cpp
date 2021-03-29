@@ -84,13 +84,6 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mute
 		float * pointer_block = &queue_block[queue_entry][0];
 		fmDemodArctan(i_filter, q_filter, prev_phase, demod_data, pointer_block);
 		
-		//Pointer stuff
-		//for(unsigned int t = 0; t<demod_data.size(); t++)
-		//{
-		//	queue_block[queue_entry][t] = demod_data[t];
-		//}
-
-		//If queue is full should wait till it is empty
 		std::unique_lock<std::mutex> queue_lock(radio_mutex);
 		if(sync_queue.size() == QUEUE_BLOCKS-1)
 		{
@@ -200,15 +193,15 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		//Mode 1, with all the upsamping and pull shit 
 		if(mode == 1)
 		{
-			convolveWithDecimMode1(audio_block, demod_data, mono_coeff, audio_inital, audio_decim, audio_up);
+			convolveWithDecimMode1Pointer(audio_block, ptr_block, block_size/20, mono_coeff, audio_inital, audio_decim, audio_up);
 			mult = 24;
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
-			convolveWithDecim(bpf_recovery, demod_data, recovery_coeff, recovery_initial, 1);
-			fmPLL(recovery_pll, bpf_recovery, 19e3, 250e3,2.0,0.0, 0.01,statePLL);
+			convolveWithDecimPointer(bpf_recovery, ptr_block,BLOCK_SIZE/20, recovery_coeff, recovery_initial, 1);
+			fmPLL(recovery_pll, bpf_recovery, 19e3, 240e3,2.0,0.0, 0.01,statePLL);
 
 			//-----------------------STEREO CHANNEL EXTRACTION-------------------------------
-			convolveWithDecim(bpf_extraction, demod_data, extraction_coeff, extraction_initial, 1);
+			convolveWithDecimPointer(bpf_extraction,ptr_block,BLOCK_SIZE/20 , extraction_coeff, extraction_initial, 1);
 
 			//-----------------------STEREO PROCESSING-------------------------------
 			//Mixing
