@@ -37,10 +37,8 @@ void impulseResponseLPF(float Fs, float Fc, unsigned short int num_taps, std::ve
         }
 }
 
-
-
+//Impuse respone for the bandpass filter
 void impulseResponseBPF(float Fb, float Fe, float Fs, int num_taps, std::vector<float> &h){
-	
 	//Initializations
 	float norm_pass = (Fe-Fb)/(Fs/2);
 	float n_half = (num_taps-1)/2;
@@ -61,7 +59,37 @@ void impulseResponseBPF(float Fb, float Fe, float Fs, int num_taps, std::vector<
 	}
 }
 
+//RRC Impulse response
+void impulseResponseRRC(const float &Fs, const int &num_taps, std::vector<float> &h)
+{
+	//Duration of each symbol
+	float T_symbol = 1/2375.0;
+	//Roll off factor
+	float beta = 0.90;
+	//The response vector
+	h.resize(num_taps); 
+	//Additional declarations
+	float t;
 
+	//Loop for the RRC
+	for(unsigned int k = 0; k < num_taps; k++)
+	{
+		t = (float)(((k-num_taps)/2.0)/Fs);
+		if(t == 0.0)
+		{
+			h[k] = 1.0 + beta*((4/PI)-1);
+		}
+		else if(t == -T_symbol/(4*beta) || t == T_symbol/(4*beta))
+		{
+			h[k] = (beta/sqrt(2))*(((1+2/PI)*(sin(PI/(4*beta))))+((1-2/PI)*(cos(PI/(4*beta)))));
+		}
+		else
+		{
+			h[k] = (sin(PI*t*(1-beta)/T_symbol)+4*beta*(t/T_symbol)*cos(PI*t*(1+beta)/T_symbol))/(PI*t*(1-(4*beta*t/T_symbol)*(4*beta*t/T_symbol))/T_symbol);
+		}
+	}
+
+}
 // function to compute the filtered output "y" by doing the convolution
 // of the input data "x" with the impulse response "h"
 void convolveFIR(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi)
@@ -267,3 +295,4 @@ void convolveWithDecimMode1Pointer(std::vector<float> &y,float* &x, const unsign
 		zi[i] = x[block_size-zi.size()-1+i]; 
 	}
 }
+
