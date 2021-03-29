@@ -28,4 +28,7 @@ void convolveWithDecimMode1(std::vector<float> &y, const std::vector<float> &x, 
 void convolveWithDecimPointer(std::vector<float> &y, float* &x, const unsigned int block_size, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num); 
 
 void convolveWithDecimMode1Pointer(std::vector<float> &y,float* &x, const unsigned int block_size, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample);
+
+void impulseResponseRRC(const float &Fs, const int &num_taps, std::vector<float> &h);
+
 #endif // DY4_FILTER_H

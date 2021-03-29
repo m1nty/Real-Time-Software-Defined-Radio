@@ -27,7 +27,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 //Rf thread
 //TODO Eventuall add these functions to a seperate file so its less ugly
 //Should be ready for mode 1. All that needs to be done is assign the sampling frequency 
-void rf_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
+void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
 {
 	//Need to set up conditional for this 
 	int rf_Fs;
@@ -85,12 +85,14 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mute
 		fmDemodArctan(i_filter, q_filter, prev_phase, demod_data, pointer_block);
 		
 		std::unique_lock<std::mutex> queue_lock(radio_mutex);
-		if(sync_queue.size() == QUEUE_BLOCKS-1)
+		//Probs not right but issa attempt
+		if(sync_queue.size() == QUEUE_BLOCKS-1 || rds_queue.size() == QUEUE_BLOCKS-1)
 		{
 			cvar.wait(queue_lock);
 		}
 		//push vector onto queue 
 		sync_queue.push((void *)&queue_block[queue_entry][0]);
+		rds_queue.push((void *)&queue_block[queue_entry][0]);
 
 		//Fills with zeros
 		std::fill(i_filter.begin(), i_filter.end(), 0);
@@ -284,6 +286,105 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		}
 	}
 }
+
+//RDS Thread
+void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
+{
+	if(mode == 0)
+	{
+		//Defining the vectors from python
+		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state, prev_sync_bits;
+		//Other vectors
+		std::vector<float> extract_rds,pre_Pll_rds, post_Pll;
+		//Defining constants
+		int num_taps = 151; 
+		//For first BPF
+		float inital_RDS_lower_freq = 54000;
+		float inital_RDS_higher_freq = 60000;
+		float Fs = 240000;
+		//For second BPF
+		float squared_lower_freq = 113500;
+		float squared_higher_freq = 114500;
+		//PLL
+		float freq_centered = 114000;
+		float phase_adj = PI/3.3-PI/1.5;
+		pll_state statePLL;
+		statePLL.integrator = 0.0;
+		statePLL.phaseEst = 0.0;
+		statePLL.feedbackI = 1.0;
+		statePLL.feedbackQ = 0.0;
+		statePLL.trigOffset = 0.0;
+		statePLL.ncoLast = 1.0;
+		//LPF 
+		float cutoff_LPF = 3000; 
+		//Rational Resampler
+		int upsample_val = 19;
+		int downsample_val = 80;
+		float cutoff_anti_img = 57000/2;
+		//Values for rational resampler
+		float rrc_Fs = 57000; 
+		unsigned int rrc_taps = 151;
+		//Values for clock recovery
+		int inital_offset = 0; 
+		int final_symb = 0; 
+		//Differential decoding 
+		float lonely_bit = 0;
+		float front_bit = 0; 
+		float remain_symbol = 0.0;
+		//Frame sync 
+		unsigned int printposition = 0; 
+		int last_position = -1;
+
+		//Define inital states
+		pre_state_extract.resize(num_taps-1); 
+		square_state.resize(num_taps-1);
+		lpf_3k_state.resize(num_taps-1);
+		anti_img_state.resize(num_taps-1); 
+		rrc_state.resize(num_taps-1);
+
+		//Get coeeficents
+		impulseResponseBPF(inital_RDS_lower_freq, inital_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
+		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
+		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
+	
+		//Loop to calculate all of it 
+		while(true)
+		{
+			//Creates lock
+			std::unique_lock<std::mutex> queue_lock(radio_mutex);
+			//Waits until there is something in the queue
+			if(rds_queue.empty())
+			{
+				cvar.wait(queue_lock);
+			}
+			//Assigns front of quene to vector
+			float *ptr_block = (float *)rds_queue.front();
+			//Pops the value of the queue 
+			rds_queue.pop();
+			queue_lock.unlock();
+			cvar.notify_one();
+
+			// ****************************************************************** 
+			// -----------------------RDS Data Processing------------------------ 
+			// ******************************************************************
+				
+			// ------------------------Extraction--------------------------------
+			// Performs convoloution to extract the data 
+			convolveWithDecimPointer(extract_rds, ptr_block,BLOCK_SIZE/20, extract_RDS_coeff, pre_state_extract, 1.0);
+
+			// ---------------------Carrier Recovery-----------------------------
+			//Squares the elements
+			for(unsigned n = 0; n < extract_rds.size(); n++) 
+			{
+				extract_rds[n] = extract_rds[n]*extract_rds[n]; 
+			}
+			//Second BPF
+			convolveWithDecim(pre_Pll_rds, extract_rds, square_coeff, square_state, 1.0);
+			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,statePLL);
+
+		}
+	}
+}
 	
 //Need to get args working
 int main(int argc, char* argv[])
@@ -321,6 +422,7 @@ int main(int argc, char* argv[])
 
 	//Define stuff for threads
 	std::queue<void *> sync_queue;
+	std::queue<void *> rds_queue;
 	std::mutex radio_mutex;
 	std::condition_variable cvar; 
 
@@ -333,12 +435,14 @@ int main(int argc, char* argv[])
 	std::vector<float> psd_est1, freq1;
 	
 	//Creates threads
-	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(radio_mutex), std::ref(cvar));
+	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar));
 	std::thread mono_stero = std::thread(mono_stero_thread, std::ref(mode), std::ref(sync_queue), std::ref(radio_mutex), std::ref(cvar));
+	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar));
 
 	//Once all standard in blocks have been read, threads are joined
 	rf.join();
 	mono_stero.join(); 
+	rds.join();
 
 	//Print this case I always forget the command
 	std::cerr << "Run: gnuplot -e 'set terminal png size 1024,768' example.gnuplot > ../data/example.png"<< std::endl;
