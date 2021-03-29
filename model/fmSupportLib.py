@@ -43,39 +43,6 @@ def fmDemodArctan(I, Q, prev_phase = 0.0):
 	# (the last phase is needed to enable continuity for block processing)
 	return fm_demod, prev_phase
 
-
-#**************************Tryna get the speed arctan working**************************
-# TODO may need to adjust the argument prev phase to be more appropriate since we only calculate derivative 
-# of Q and I, so maybe those prev values should be returned and be in the argument
-#def fmDemodArctan(I, Q, prev_phase = (0.0,0,0)):
-#    # Creates a list for the demodulated values
-#    fm_demod = np.empty(len(I))
-#
-#    #For now just set these prev I and Q values to 0.0, 
-#    prev_I = prev_phase[0]
-#    prev_Q = prev_phase[1]
-#
-#    # iterate through each of the I and Q pairs
-#    for k in range(len(I)):
-#        # Conditionals in place in order to make sure that no division by zero takes place  
-#        if (I[k])**2 + (Q[k])**2 ==0:
-#            #In the case where division by zero might take place, just set output to zero
-#            fm_demod[k] = 0.0
-#        else:
-#            #If denominator will not be zero, then use the fast equation
-#            fm_demod[k] = (I[k] * (Q[k]-prev_Q) - Q[k] * (I[k]-prev_I)) / ((I[k])**2 + (Q[k])**2) 
-#
-#        # Store previous I and Q values in order to calculate the derivate in the next iteration of the loop 
-#        prev_I = I[k]
-#        prev_Q = Q[k] 
-#        #store I and Q here in order to be used in block processing when its returned
-#        prev_phase = (prev_I, prev_Q) 
-#
-#    # return both the demodulated samples as well as the last phase
-#    # (the last phase is needed to enable continuity for block processing)
-#    return fm_demod, prev_phase
-
-# custom function for DFT that can be used by the PSD estimate
 def DFT(x):
 
 	# number of samples
