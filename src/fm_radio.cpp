@@ -338,8 +338,12 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		int prebit = 0; 
 		int offset = 0;
 		//Frame sync 
+		unsigned int position = 0;
 		unsigned int printposition = 0; 
 		int last_position = -1;
+		std::vector<int> potential_syndrome,block;
+		potential_syndrome.resize(10);
+		block.resize(26);
 
 		//Define inital states
 		pre_state_extract.resize(num_taps-1); 
@@ -491,68 +495,72 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			
 			//From Sync
 			if(block_id != 0){
-			    diff_bits = np.insert(diff_bits, 0, prev_sync_bits, axis=0);
+				diff_bits.insert(diff_bits.begin, prev_sync_bits);
+				bit_stream.insert(bit_stream.begin(), front_bit);
 			}
 
 			position = 0;
 			while(true){
-			    block = diff_bits[position:position+26];
-			    potential_syndrome.resize(10,0);
-			    for(int i = 0 ; i<potential_syndrome.size() ; i++){
-				for(int j = 0 ; j<26 ; j++){
-				    mult = block[j] && H[j,i];
-				    potential_syndrome[i] = (potential_syndrome[i] && !mult) || (!potential_syndrome[i] && mult);
+				//
+				for(unsigned int y = position; position < position+26; y++)
+				{
+					block[y-position] = diff_bits[y];
 				}
-			    }
-			    //convert to int
-			    potential_syndrome = static_cast<short int>(potential_syndrome);
-			    //Checks if syndrome A
-			    if((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]){
-				if(last_position == -1 or printposition-last_position == 26){ 
-				    last_position = printposition;
-				    std::cerr << "Syndrome A at position " << printposition << std::endl;
-				    last_position = printposition;
+				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++){
+				    for(unsigned int j = 0 ; j<26 ; j++){
+					mult = block[j] && H[j,i]; 
+					potential_syndrome[i] = (potential_syndrome[i] && !mult) || (!potential_syndrome[i] && mult);
+				    }
 				}
-				else{
-				    std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
+				//convert to int
+				potential_syndrome = static_cast<short int>(potential_syndrome);
+				//Checks if syndrome A
+				if((potential_syndrome) == [1,1,1,1,0,1,1,0,0,0]){
+				    if(last_position == -1 or printposition-last_position == 26){ 
+					last_position = printposition;
+					std::cerr << "Syndrome A at position " << printposition << std::endl;
+					last_position = printposition;
+				    }
+				    else{
+					std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
+				    }
 				}
-			    }
-			    //Checks if syndrome B
-			    elif((potential_syndrome).tolist() == [1,1,1,1,0,1,0,1,0,0]){
-				if(last_position == -1 or printposition-last_position == 26){ 
-				    std::cerr << "Syndrome B at position " << printposition << std::endl;
-				    last_position = printposition;
+				//Checks if syndrome B
+				elif((potential_syndrome) == [1,1,1,1,0,1,0,1,0,0]){
+				    if(last_position == -1 or printposition-last_position == 26){ 
+					std::cerr << "Syndrome B at position " << printposition << std::endl;
+					last_position = printposition;
+				    }
+				    else{
+					std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
+				    }
 				}
-				else{
-				    std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
+				//Checks if syndrome C
+				elif((potential_syndrome) == [1,0,0,1,0,1,1,1,0,0]){
+				    if(last_position == -1 or printposition-last_position == 26){ 
+					std::cerr << "Syndrome C at position " << printposition << std::endl;
+					last_position = printposition;
+				    }
+				    else{
+					std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
+				    }
 				}
-			    }
-			    //Checks if syndrome C
-			    elif((potential_syndrome).tolist() == [1,0,0,1,0,1,1,1,0,0]){
-				if(last_position == -1 or printposition-last_position == 26){ 
-				    std::cerr << "Syndrome C at position " << printposition << std::endl;
-				    last_position = printposition;
-				}
-				else{
-				    std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
-				}
-			    }
-			    //Checks if syndrome D
-			    elif((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]){
-				if(last_position == -1 or printposition-last_position == 26){ 
-				    std::cerr << "Syndrome D at position " << printposition << std::endl;
-				    last_position = printposition;
-				}
-				else{
-				    std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
-				}
-			    }
-			    //Breaks once it reaches the end
-			    position += 1;
-			    if(position+26 > diff_bits.size()-1){
-				break;
-			    }
-			    printposition+=1;
+				//Checks if syndrome D
+				elif((potential_syndrome) == [1,0,0,1,0,1,1,0,0,0]){
+				    if(last_position == -1 or printposition-last_position == 26){ 
+					std::cerr << "Syndrome D at position " << printposition << std::endl;
+					last_position = printposition;
+				    }
+				    else{
+					std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
+				    }
+			}
+			//Breaks once it reaches the end
+			position += 1;
+			if(position+26 > diff_bits.size()-1){
+			    break;
+			}
+			printposition+=1;
 			}
 			//Creates list of bits not used 
 			prev_sync_bits = diff_bits[position-1::];
