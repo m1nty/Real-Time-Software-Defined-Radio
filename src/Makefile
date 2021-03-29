@@ -4,9 +4,9 @@ CC = g++
 # CFLAGS = -c -Wall -Wpedantic
 CFLAGS = -c -O3
 LDFLAGS = -lm -pthread
-SOURCES = iofunc.cpp filter.cpp  fourier.cpp  genfunc.cpp  logfunc.cpp rf_module.cpp fm_radio.cpp
+SOURCES = iofunc.cpp filter.cpp  fourier.cpp  genfunc.cpp  logfunc.cpp rf_module.cpp fm_radio.cpp helper.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
-EXECUTABLE = experiment
+EXECUTABLE = fm_radio
 
 all: $(EXECUTABLE) clean
 
