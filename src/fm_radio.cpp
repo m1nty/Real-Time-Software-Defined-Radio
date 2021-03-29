@@ -14,6 +14,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #include "condition_variable"
 #include <thread>
 #include "helper.h"
+#include <math.h>
 
 #include <iostream> 
 
@@ -454,7 +455,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			}
 			std::vector<float> symbols_I;
 			//Maybe more to this
-			symbols_I.resize(rrc_rds.size()/24);
+			symbols_I.resize(std::floor((rrc_rds.size()-inital_offset)/24));
 			for(unsigned int k; k < symbols_I.size();k++)
 			{
 				symbols_I[k] = rrc_rds[24*k+inital_offset];
@@ -549,7 +550,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				//potential_syndrome = static_cast<short int>(potential_syndrome);
 				//Checks if syndrome A
 				if(potential_syndrome == syndrome_A){ 
-				    if(last_position == -1 or printposition-last_position == 26){ 
+				    if(last_position == -1 || printposition-last_position == 26){ 
 					last_position = printposition;
 					std::cerr << "Syndrome A at position " << printposition << std::endl;
 					last_position = printposition;
@@ -560,7 +561,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				//Checks if syndrome B
 				else if(potential_syndrome == syndrome_B){ 
-				    if(last_position == -1 or printposition-last_position == 26){ 
+				    if(last_position == -1 || printposition-last_position == 26){ 
 					std::cerr << "Syndrome B at position " << printposition << std::endl;
 					last_position = printposition;
 				    }
@@ -570,7 +571,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				//Checks if syndrome C
 				else if(potential_syndrome == syndrome_C){ 
-				    if(last_position == -1 or printposition-last_position == 26){ 
+				    if(last_position == -1 || printposition-last_position == 26){ 
 					std::cerr << "Syndrome C at position " << printposition << std::endl;
 					last_position = printposition;
 				    }
@@ -580,7 +581,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				//Checks if syndrome D
 				else if(potential_syndrome == syndrome_D){
-				    if(last_position == -1 or printposition-last_position == 26){ 
+				    if(last_position == -1 || printposition-last_position == 26){ 
 					std::cerr << "Syndrome D at position " << printposition << std::endl;
 					last_position = printposition;
 				    }

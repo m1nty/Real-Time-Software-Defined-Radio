@@ -202,12 +202,18 @@ if __name__ == "__main__":
 
         #Clock and data recovery
         if block_count ==0:
-            int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
+            #int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
+            if(rrc_rds[0] > rrc_rds[12]):
+                int_offset = 0;
+            else: 
+                int_offset = 12;
+            
+
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]
         symbols_Q = rrc_rds_Q[int_offset::24]
         #block processing the offset for the next block 
-        int_offset = 24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
+        int_offset = 12#24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
         
         #Plotting
         if block_count == 2: 
