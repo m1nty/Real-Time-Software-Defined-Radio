@@ -293,7 +293,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 	if(mode == 0)
 	{
 		//Defining the vectors from python
-		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state, prev_sync_bits;
+		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state;
 		//Other vectors
 		std::vector<float> extract_rds,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
 		//Defining constants
@@ -341,9 +341,15 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		unsigned int position = 0;
 		unsigned int printposition = 0; 
 		int last_position = -1;
-		std::vector<int> potential_syndrome,block;
+		std::vector<int> potential_syndrome,block,prev_sync_bits;
 		potential_syndrome.resize(10);
 		block.resize(26);
+		prev_sync_bits.resize(17);
+		std::vector<std::vector<int>> H {{1,0,0,0,0,0,0,0,0,0},{0,1,0,0,0,0,0,0,0,0},{0,0,1,0,0,0,0,0,0,0},{0,0,0,1,0,0,0,0,0,0},{0,0,0,0,1,0,0,0,0,0},{0,0,0,0,0,1,0,0,0,0},{0,0,0,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,1,0,0},{0,0,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,0,0,0,1},{1,0,1,1,0,1,1,1,0,0},{0,1,0,1,1,0,1,1,1,0},{0,0,1,0,1,1,0,1,1,1},{1,0,1,0,0,0,0,1,1,1},{1,1,1,0,0,1,1,1,1,1},{1,1,0,0,0,1,0,0,1,1},{1,1,0,1,0,1,0,1,0,1},{1,1,0,1,1,1,0,1,1,0},{0,1,1,0,1,1,1,0,1,1},{1,0,0,0,0,0,0,0,0,1},{1,1,1,1,0,1,1,1,0,0}, {0,1,1,1,1,0,1,1,1,0},{0,0,1,1,1,1,0,1,1,1},{1,0,1,0,1,0,0,1,1,1},{1,1,1,0,0,0,1,1,1,1}, {1,1,0,0,0,1,1,0,1,1}};
+		std::vector<int> syndrome_A {1,1,1,1,0,1,1,0,0,0};
+		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
+		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
+		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
 
 		//Define inital states
 		pre_state_extract.resize(num_taps-1); 
@@ -495,8 +501,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			
 			//From Sync
 			if(block_id != 0){
-				diff_bits.insert(diff_bits.begin, prev_sync_bits);
-				bit_stream.insert(bit_stream.begin(), front_bit);
+				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
 
 			position = 0;
@@ -508,14 +513,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++){
 				    for(unsigned int j = 0 ; j<26 ; j++){
-					mult = block[j] && H[j,i]; 
-					potential_syndrome[i] = (potential_syndrome[i] && !mult) || (!potential_syndrome[i] && mult);
+					potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
 				    }
 				}
 				//convert to int
-				potential_syndrome = static_cast<short int>(potential_syndrome);
+				//potential_syndrome = static_cast<short int>(potential_syndrome);
 				//Checks if syndrome A
-				if((potential_syndrome) == [1,1,1,1,0,1,1,0,0,0]){
+				if(potential_syndrome == syndrome_A){ 
 				    if(last_position == -1 or printposition-last_position == 26){ 
 					last_position = printposition;
 					std::cerr << "Syndrome A at position " << printposition << std::endl;
@@ -526,7 +530,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				    }
 				}
 				//Checks if syndrome B
-				elif((potential_syndrome) == [1,1,1,1,0,1,0,1,0,0]){
+				else if(potential_syndrome == syndrome_B){ 
 				    if(last_position == -1 or printposition-last_position == 26){ 
 					std::cerr << "Syndrome B at position " << printposition << std::endl;
 					last_position = printposition;
@@ -536,7 +540,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				    }
 				}
 				//Checks if syndrome C
-				elif((potential_syndrome) == [1,0,0,1,0,1,1,1,0,0]){
+				else if(potential_syndrome == syndrome_C){ 
 				    if(last_position == -1 or printposition-last_position == 26){ 
 					std::cerr << "Syndrome C at position " << printposition << std::endl;
 					last_position = printposition;
@@ -546,7 +550,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				    }
 				}
 				//Checks if syndrome D
-				elif((potential_syndrome) == [1,0,0,1,0,1,1,0,0,0]){
+				else if(potential_syndrome == syndrome_D){
 				    if(last_position == -1 or printposition-last_position == 26){ 
 					std::cerr << "Syndrome D at position " << printposition << std::endl;
 					last_position = printposition;
@@ -563,7 +567,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			printposition+=1;
 			}
 			//Creates list of bits not used 
-			prev_sync_bits = diff_bits[position-1::];
+			for(unsigned int g = 0; g < prev_sync_bits.size(); g++)
+				prev_sync_bits[g] = diff_bits[position-1+g];
 
 			
 			//END
