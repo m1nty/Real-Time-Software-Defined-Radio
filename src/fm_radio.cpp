@@ -167,7 +167,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	extraction_initial.resize(audio_taps-1,0.0);
 	demod_data.resize(block_size/20);
 
-	mixed.resize(5120,0.0);
+	mixed.resize(block_size/20,0.0);
 	// std::cerr << "audio_Fs = " << audio_Fs << std::endl;
 
 	//Creates the filter coefficents and then
