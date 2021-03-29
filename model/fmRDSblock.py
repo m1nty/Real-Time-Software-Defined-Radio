@@ -171,6 +171,7 @@ if __name__ == "__main__":
         mixed_rds = np.multiply(extract_rds, post_Pll[0:len(extract_rds):1])*2
         #Q component
         mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[0:len(extract_rds):1])*2
+        print(mixed_rds)
 
         #LPF
         #I Compent 
@@ -207,13 +208,12 @@ if __name__ == "__main__":
                 int_offset = 0;
             else: 
                 int_offset = 12;
-            
 
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]
         symbols_Q = rrc_rds_Q[int_offset::24]
         #block processing the offset for the next block 
-        int_offset = 12#24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
+        int_offset = int_offset#24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
         
         #Plotting
         if block_count == 2: 

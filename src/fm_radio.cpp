@@ -388,11 +388,12 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		lpf_3k_state.resize(num_taps-1);
 		anti_img_state.resize(num_taps-1); 
 		rrc_state.resize(num_taps-1);
-
 		//Get coeeficents
 		impulseResponseBPF(inital_RDS_lower_freq, inital_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
 		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
 		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
+		impulseResponseLPF(Fs, cutoff_anti_img, num_taps, anti_img_coeff);
+		impulseResponseRRC(57000, num_taps, rrc_coeff);
 	
 		//Loop to calculate all of it 
 		while(true)
@@ -435,13 +436,18 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			for(unsigned m = 0; m < post_Pll.size(); m++)
 			{
 				mixed[m] = post_Pll[m] * extract_rds[m];
+				//std::cerr << mixed[m] << std::endl;
 			}
 			//LPF
 			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1.0);
 
+
 			//Need to use the concoloution from mode 1 for upsampling
 			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
-			
+			for(unsigned int x = 0; x < resample_rds.size(); x++)
+			{
+				resample_rds[x] = resample_rds[x] * upsample_val;
+			}
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1.0);
 
@@ -456,9 +462,10 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			std::vector<float> symbols_I;
 			//Maybe more to this
 			symbols_I.resize(std::floor((rrc_rds.size()-inital_offset)/24));
-			for(unsigned int k; k < symbols_I.size();k++)
+			for(unsigned int k=inital_offset; k < symbols_I.size();k++)
 			{
 				symbols_I[k] = rrc_rds[24*k+inital_offset];
+			//	std::cerr << symbols_I[k] <<std::endl;
 			}
 
 			//NOTE May need to add something for block procssing here 
@@ -478,6 +485,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 					start_pos = 1;
 				else if(count_1_pos > count_0_pos) 
 					start_pos = 0;
+				std::cerr << "Start position in Manchester " << start_pos << std::endl;
 			}
 			//Now the recovery 
 			std::vector<int> bit_stream; 
@@ -532,6 +540,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
 
+			std::cerr << "****************Prcoessing Block: " << block_id << std::endl;
 			position = 0;
 			while(true){
 				//
@@ -548,6 +557,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				//convert to int
 				//potential_syndrome = static_cast<short int>(potential_syndrome);
+				//std::cerr << "Potential syndrome " << potential_syndrome[0] <<potential_syndrome[1]<< potential_syndrome[2]<<potential_syndrome[3]<<potential_syndrome[4]<<potential_syndrome[5]<<potential_syndrome[6]<<potential_syndrome[7]<<potential_syndrome[8]<<potential_syndrome[9]<<std::endl;
 				//Checks if syndrome A
 				if(potential_syndrome == syndrome_A){ 
 				    if(last_position == -1 || printposition-last_position == 26){ 
@@ -588,13 +598,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				    else{
 					std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
 				    }
-			}
-			//Breaks once it reaches the end
-			position += 1;
-			if(position+26 > diff_bits.size()-1){
-			    break;
-			}
-			printposition+=1;
+				}
+				//Breaks once it reaches the end
+				position += 1;
+				if(position+26 > diff_bits.size()-1){
+				    break;
+				}
+				printposition+=1;
 			}
 			//Creates list of bits not used 
 			for(unsigned int g = 0; g < prev_sync_bits.size(); g++)
@@ -602,6 +612,12 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			
 			//END
+			std::fill(extract_rds.begin(), extract_rds.end(), 0);
+			std::fill(pre_Pll_rds.begin(), pre_Pll_rds.end(), 0);
+			std::fill(post_Pll.begin(), post_Pll.end(), 0);
+			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
+			std::fill(resample_rds.begin(), resample_rds.end(), 0);
+			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
 			//iterate block id
 			block_id ++;
 
