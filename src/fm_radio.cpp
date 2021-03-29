@@ -295,9 +295,10 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		//Defining the vectors from python
 		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state, prev_sync_bits;
 		//Other vectors
-		std::vector<float> extract_rds,pre_Pll_rds, post_Pll;
+		std::vector<float> extract_rds,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
 		//Defining constants
 		int num_taps = 151; 
+		unsigned int block_id = 0;
 		//For first BPF
 		float inital_RDS_lower_freq = 54000;
 		float inital_RDS_higher_freq = 60000;
@@ -328,9 +329,14 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		int inital_offset = 0; 
 		int final_symb = 0; 
 		//Differential decoding 
+		int count_0_pos =0;
+		int count_1_pos = 0;
+		int start_pos = 0;
 		float lonely_bit = 0;
 		float front_bit = 0; 
 		float remain_symbol = 0.0;
+		int prebit = 0; 
+		int offset = 0;
 		//Frame sync 
 		unsigned int printposition = 0; 
 		int last_position = -1;
@@ -382,6 +388,185 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			convolveWithDecim(pre_Pll_rds, extract_rds, square_coeff, square_state, 1.0);
 			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,statePLL);
 
+			// ---------------------Demodulation-mixed----------------------------
+			//mixing 
+			mixed.resize(post_Pll.size());
+			for(unsigned m = 0; m < post_Pll.size(); m++)
+			{
+				mixed[m] = post_Pll[m] * extract_rds[m];
+			}
+			
+			//LPF
+			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1.0);
+			
+
+			//Need to use the concoloution from mode 1 for upsampling
+			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
+			
+			//RRC Filter
+			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1.0);
+
+			//Cock and data recovery
+			if(block_id == 0)
+			{
+				if(rrc_rds[0] > rrc_rds[12])
+					inital_offset = 12;
+				else
+					inital_offset =0 ;
+			}
+			std::vector<float> symbols_I;
+			//Maybe more to this
+			symbols_I.resize(rrc_rds.size()/24);
+			for(unsigned int k; k < symbols_I.size();k++)
+			{
+				symbols_I[k] = rrc_rds[24*k+inital_offset];
+			}
+
+			//NOTE May need to add something for block procssing here 
+			
+			// ---------------------RDS Data Processing----------------------------
+			//Inital screening 
+			if(block_id == 0)
+			{
+				for(unsigned int j; j < symbols_I.size()/4; j++)
+				{
+					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
+						count_0_pos += 1;
+					else if((symbols_I[2*j+1] > 0 && symbols_I[2*j+2] > 0) || (symbols_I[2*j+1] < 0 && symbols_I[2*j+2]<0))
+						count_1_pos += 1;
+				}
+				if(count_0_pos > count_1_pos)
+					start_pos = 1;
+				else if(count_1_pos > count_0_pos) 
+					start_pos = 0;
+			}
+			//Now the recovery 
+			std::vector<int> bit_stream; 
+			bit_stream.resize((int)((symbols_I.size()/2)-start_pos));
+			
+			//Uses prev bit just in case
+			if(start_pos == 1 && block_id != 0)
+			{
+				if(lonely_bit > symbols_I[0])
+					front_bit = 0 ;
+				else if(symbols_I[0] > lonely_bit)
+					front_bit = 1;
+			}
+
+			//Figures out what every bit is
+			for(unsigned int k =0; k<bit_stream.size(); k++) 
+			{
+				if(start_pos+2*k+1 > symbols_I.size()-1)
+					break;
+				if(symbols_I[2*k+start_pos] > symbols_I[2*k+1+start_pos])
+					bit_stream[k] = 1;
+				else if(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos])
+					bit_stream[k] = 0;
+			}
+			if(start_pos == 1) 
+			{
+				bit_stream.insert(bit_stream.begin(), front_bit);
+				front_bit = symbols_I[-1]; 
+			}
+
+			//Differential decoding
+			if(block_id == 0)
+			{
+				prebit = bit_stream[0];
+				offset = 1;
+			}
+			else
+			{
+				offset = 0; 
+			}
+			//Perform XOR on bits
+			std::vector<int> diff_bits;
+			diff_bits.resize(bit_stream.size()-offset);
+			for(unsigned int t = 0; t< diff_bits.size(); t++)
+			{
+				diff_bits[t] = prebit ^ bit_stream[t+offset];
+				prebit = bit_stream[t+offset];
+			}
+
+			
+			//From Sync
+			if(block_id != 0){
+			    diff_bits = np.insert(diff_bits, 0, prev_sync_bits, axis=0);
+			}
+
+			position = 0;
+			while(true){
+			    block = diff_bits[position:position+26];
+			    potential_syndrome.resize(10,0);
+			    for(int i = 0 ; i<potential_syndrome.size() ; i++){
+				for(int j = 0 ; j<26 ; j++){
+				    mult = block[j] && H[j,i];
+				    potential_syndrome[i] = (potential_syndrome[i] && !mult) || (!potential_syndrome[i] && mult);
+				}
+			    }
+			    //convert to int
+			    potential_syndrome = static_cast<short int>(potential_syndrome);
+			    //Checks if syndrome A
+			    if((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]){
+				if(last_position == -1 or printposition-last_position == 26){ 
+				    last_position = printposition;
+				    std::cerr << "Syndrome A at position " << printposition << std::endl;
+				    last_position = printposition;
+				}
+				else{
+				    std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
+				}
+			    }
+			    //Checks if syndrome B
+			    elif((potential_syndrome).tolist() == [1,1,1,1,0,1,0,1,0,0]){
+				if(last_position == -1 or printposition-last_position == 26){ 
+				    std::cerr << "Syndrome B at position " << printposition << std::endl;
+				    last_position = printposition;
+				}
+				else{
+				    std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
+				}
+			    }
+			    //Checks if syndrome C
+			    elif((potential_syndrome).tolist() == [1,0,0,1,0,1,1,1,0,0]){
+				if(last_position == -1 or printposition-last_position == 26){ 
+				    std::cerr << "Syndrome C at position " << printposition << std::endl;
+				    last_position = printposition;
+				}
+				else{
+				    std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
+				}
+			    }
+			    //Checks if syndrome D
+			    elif((potential_syndrome).tolist() == [1,0,0,1,0,1,1,0,0,0]){
+				if(last_position == -1 or printposition-last_position == 26){ 
+				    std::cerr << "Syndrome D at position " << printposition << std::endl;
+				    last_position = printposition;
+				}
+				else{
+				    std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
+				}
+			    }
+			    //Breaks once it reaches the end
+			    position += 1;
+			    if(position+26 > diff_bits.size()-1){
+				break;
+			    }
+			    printposition+=1;
+			}
+			//Creates list of bits not used 
+			prev_sync_bits = diff_bits[position-1::];
+
+			
+			//END
+			//iterate block id
+			block_id ++;
+
+			//Will keep iterating the block till there is nothing coming in from standard in 
+			if((std::cin.rdstate()) != 0)
+			{
+				break;
+			}
 		}
 	}
 }
