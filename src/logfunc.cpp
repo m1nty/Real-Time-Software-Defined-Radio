@@ -38,6 +38,6 @@ void logVector(const std::string filename, \
 			fd << y[i];
 		fd << "\n";
 	}
-	std::cout << "Generated " << dat_filename << " to be used by gnuplot\n";
+	std::cerr << "Generated " << dat_filename << " to be used by gnuplot\n"<<std::endl;
 	fd.close();
 }

@@ -151,6 +151,7 @@ if __name__ == "__main__":
         # ------------------------Extraction--------------------------------
         # Performs convoloution to extract the data
         extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,zi=pre_state_extract)
+        print(extract_rds[10])
 
         # ---------------------Carrier Recovery-----------------------------
         #Squaring Nonolinearity
@@ -204,7 +205,7 @@ if __name__ == "__main__":
         #Clock and data recovery
         if block_count ==0:
             #int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
-            if(rrc_rds[0] > rrc_rds[12]):
+            if(abs(rrc_rds[0]) > abs(rrc_rds[12])):
                 int_offset = 0;
             else: 
                 int_offset = 12;

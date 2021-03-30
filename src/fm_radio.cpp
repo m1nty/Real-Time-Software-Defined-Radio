@@ -27,7 +27,6 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 
 //Rf thread
 //TODO Eventuall add these functions to a seperate file so its less ugly
-//Should be ready for mode 1. All that needs to be done is assign the sampling frequency 
 void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
 {
 	//Need to set up conditional for this 
@@ -105,12 +104,16 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 			//Unlock and notify 
 			queue_lock.unlock();
 			cvar.notify_one();
+			if((std::cin.rdstate()) != 0)
+			{
+				break;
+			}
 		}
 		else
 		{
 			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) //|| sync_queue.size() != rds_queue.size())
 			{
-				//std::cerr << "Issue so need to lock" << std::endl;
+				std::cerr << "Issue so need to lock" << std::endl;
 				if(sync_queue.size() == QUEUE_BLOCKS-1)
 					cvar.wait(queue_lock);
 				if(rds_queue.size() == QUEUE_BLOCKS-1)
@@ -135,11 +138,10 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 			queue_lock.unlock();
 			cvar.notify_one();
 			cvar1.notify_one();
-		}
-		//If nothing at STD in it breaks
-		if((std::cin.rdstate()) != 0)
-		{
-			break;
+			if((std::cin.rdstate()) != 0)
+			{
+				break;
+			}
 		}
 	}
 }
@@ -357,17 +359,16 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		float rrc_Fs = 57000; 
 		unsigned int rrc_taps = 151;
 		//Values for clock recovery
-		int inital_offset = 0; 
+		unsigned int inital_offset = 0; 
 		int final_symb = 0; 
 		//Differential decoding 
 		int count_0_pos =0;
 		int count_1_pos = 0;
-		int start_pos = 0;
+		unsigned int start_pos = 0;
 		float lonely_bit = 0;
-		float front_bit = 0; 
-		float remain_symbol = 0.0;
+		int front_bit = 0; 
 		int prebit = 0; 
-		int offset = 0;
+		unsigned int offset = 0;
 		//Frame sync 
 		unsigned int position = 0;
 		unsigned int printposition = 0; 
@@ -416,7 +417,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			// -----------------------RDS Data Processing------------------------ 
 			// ******************************************************************
 			std::cerr << " " << std::endl;
-			std::cerr << "****************Prcoessing Block: " << block_id << std::endl;
+			std::cerr << "****************Prcoessing Block: " << block_id<< "****************" << std::endl;
 				
 			// ------------------------Extraction--------------------------------
 			// Performs convoloution to extract the data 
@@ -430,7 +431,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				extract_rds_squared[n] = extract_rds[n]*extract_rds[n]; 
 			}
 			//Second BPF
-			convolveWithDecim(pre_Pll_rds, extract_rds_squared, square_coeff, square_state, 1.0);
+			convolveWithDecim(pre_Pll_rds, extract_rds_squared, square_coeff, square_state, 1);
+			//Pll
 			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
@@ -438,11 +440,11 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			mixed.resize(post_Pll.size());
 			for(unsigned m = 0; m < post_Pll.size(); m++)
 			{
-				mixed[m] = post_Pll[m] * extract_rds[m];
+				mixed[m] = post_Pll[m] * extract_rds[m]*2;
 				//std::cerr << mixed[m] << std::endl;
 			}
 			//LPF
-			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1.0);
+			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
 
 			//Need to use the concoloution from mode 1 for upsampling
 			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
@@ -451,26 +453,36 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				resample_rds[x] = resample_rds[x] * upsample_val;
 				//std::cerr << resample_rds[x] << std::endl;
 			}
-			//RRC Filter
-			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1.0);
+			
+			//Lets try some sus shit
 
-			//Cock and data recovery
+			//RRC Filter
+			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
+			if(block_id == 3)
+			{
+				std::vector<float> time;
+				genIndexVector(time, rrc_rds.size());
+				std::cerr << "VectorLog time"<<std::endl;
+				logVector("rrc", time, rrc_rds);
+			}
+
+			//Clock and data recovery
+			//Determines where to initally sample 
 			if(block_id == 0)
 			{
-				if(rrc_rds[0] < rrc_rds[12])
+				if(std::abs(rrc_rds[0]) < std::abs(rrc_rds[12]) || std::abs(rrc_rds[24]) < std::abs(rrc_rds[12]))
 					inital_offset = 12;
 				else
 					inital_offset =0 ;
 				std::cerr << "inital offset for clock recovery = " << inital_offset <<std::endl; 
 			}
 			std::vector<float> symbols_I;
-			//Maybe more to this
 			symbols_I.resize(std::floor((rrc_rds.size()-inital_offset)/24));
-			
-			for(unsigned int k=inital_offset; k < symbols_I.size();k++)
+			//Gets the symbols from the rrc array 
+			for(unsigned int k=0; k < symbols_I.size();k++)
 			{
 				symbols_I[k] = rrc_rds[24*k+inital_offset];
-				std::cerr << symbols_I[k] <<std::endl;
+				//std::cerr << symbols_I[k] <<std::endl;
 			}
 
 			//NOTE May need to add something for block procssing here 
@@ -479,13 +491,16 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Inital screening 
 			if(block_id == 0)
 			{
+				//Loops through small chunck of symbols vector 
 				for(unsigned int j; j < symbols_I.size()/4; j++)
 				{
+					//Checks for doubles 
 					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
 						count_0_pos += 1;
 					else if((symbols_I[2*j+1] > 0 && symbols_I[2*j+2] > 0) || (symbols_I[2*j+1] < 0 && symbols_I[2*j+2]<0))
 						count_1_pos += 1;
 				}
+				//Depending on what start position has more doubles, determine the appropriate start position 
 				if(count_0_pos > count_1_pos)
 					start_pos = 1;
 				else if(count_1_pos > count_0_pos) 
@@ -500,11 +515,10 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			if(start_pos == 1 && block_id != 0)
 			{
 				if(lonely_bit > symbols_I[0])
-					front_bit = 0 ;
+					front_bit = 1 ;
 				else if(symbols_I[0] > lonely_bit)
-					front_bit = 1;
+					front_bit = 0;
 			}
-
 			//Figures out what every bit is
 			for(unsigned int k =0; k<bit_stream.size(); k++) 
 			{
@@ -515,14 +529,16 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				else if(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos])
 					bit_stream[k] = 0;
 			}
+			//If start pos 1 append bit to front and set value for the bit of the end 
 			if(start_pos == 1) 
 			{
 				bit_stream.insert(bit_stream.begin(), front_bit);
-				front_bit = symbols_I[-1]; 
+				lonely_bit = symbols_I[-1]; 
 			}
 			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
 
 			//Differential decoding
+			//Set inital pre bit and offset
 			if(block_id == 0)
 			{
 				prebit = bit_stream[0];
@@ -540,9 +556,11 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				diff_bits[t] = prebit ^ bit_stream[t+offset];
 				prebit = bit_stream[t+offset];
 			}
+			prebit = bit_stream[-1];
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 
 			//From Sync
+			//insert remaining bits to front of vector
 			if(block_id != 0){
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
@@ -551,11 +569,12 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			position = 0;
 			while(true){
-				//
+				//Creates a block of size 26
 				for(unsigned int y = position; y < position+26; y++)
 				{
 					block[y-position] = diff_bits[y];
 				}
+				//Matric multiplication 
 				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
 				{
 					for(unsigned int j = 0 ; j<26 ; j++)
@@ -568,49 +587,49 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				//std::cerr << "Potential syndrome " << potential_syndrome[0] <<potential_syndrome[1]<< potential_syndrome[2]<<potential_syndrome[3]<<potential_syndrome[4]<<potential_syndrome[5]<<potential_syndrome[6]<<potential_syndrome[7]<<potential_syndrome[8]<<potential_syndrome[9]<<std::endl;
 				//Checks if syndrome A
 				if(potential_syndrome == syndrome_A){ 
-				    if(last_position == -1 || printposition-last_position == 26){ 
-					last_position = printposition;
-					std::cerr << "Syndrome A at position " << printposition << std::endl;
-					last_position = printposition;
-				    }
-				    else{
-					std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
-				    }
+					if(last_position == -1 || printposition-last_position == 26){ 
+						last_position = printposition;
+						std::cerr << "Syndrome A at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
+					}
 				}
 				//Checks if syndrome B
 				else if(potential_syndrome == syndrome_B){ 
-				    if(last_position == -1 || printposition-last_position == 26){ 
-					std::cerr << "Syndrome B at position " << printposition << std::endl;
-					last_position = printposition;
-				    }
-				    else{
-					std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
-				    }
+					if(last_position == -1 || printposition-last_position == 26){ 
+						std::cerr << "Syndrome B at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
+					}
 				}
 				//Checks if syndrome C
 				else if(potential_syndrome == syndrome_C){ 
-				    if(last_position == -1 || printposition-last_position == 26){ 
-					std::cerr << "Syndrome C at position " << printposition << std::endl;
-					last_position = printposition;
-				    }
-				    else{
-					std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
-				    }
+					if(last_position == -1 || printposition-last_position == 26){ 
+						std::cerr << "Syndrome C at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
+					}
 				}
 				//Checks if syndrome D
 				else if(potential_syndrome == syndrome_D){
-				    if(last_position == -1 || printposition-last_position == 26){ 
-					std::cerr << "Syndrome D at position " << printposition << std::endl;
-					last_position = printposition;
-				    }
-				    else{
-					std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
-				    }
+					if(last_position == -1 || printposition-last_position == 26){ 
+						std::cerr << "Syndrome D at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
+					}
 				}
 				//Breaks once it reaches the end
 				position += 1;
 				if(position+26 > diff_bits.size()-1){
-				    break;
+					break;
 				}
 				printposition+=1;
 			}
@@ -692,6 +711,7 @@ int main(int argc, char* argv[])
 	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar1));
 
 	//Once all standard in blocks have been read, threads are joined
+	std::cerr << "do we get here" << std::endl;
 	rf.join();
 	mono_stero.join(); 
 	rds.join();
