@@ -113,12 +113,16 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		{
 			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) //|| sync_queue.size() != rds_queue.size())
 			{
-				std::cerr << "Issue so need to lock" << std::endl;
+				//std::cerr << "Issue so need to lock" << std::endl;
 				if(sync_queue.size() == QUEUE_BLOCKS-1)
 					cvar.wait(queue_lock);
 				if(rds_queue.size() == QUEUE_BLOCKS-1)
 					cvar1.wait(queue_lock);
 			}
+			//if(sync_queue.size() == QUEUE_BLOCKS-1)
+			//{
+			//	cvar.wait(queue_lock);
+			//}
 			//if(rds_queue.size() == QUEUE_BLOCKS-1)
 			//{
 			//	cvar1.wait(queue_lock);
@@ -313,7 +317,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		block_id ++;
 
 		//Will keep iterating the block till there is nothing coming in from standard in 
-		if((std::cin.rdstate()) != 0)
+		if((std::cin.rdstate()) != 0&&sync_queue.empty())
 		{
 			break;
 		}
@@ -649,7 +653,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			block_id ++;
 
 			//Will keep iterating the block till there is nothing coming in from standard in 
-			if((std::cin.rdstate()) != 0)
+			if((std::cin.rdstate()) != 0&&rds_queue.empty())
 			{
 				break;
 			}
