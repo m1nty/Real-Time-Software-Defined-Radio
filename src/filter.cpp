@@ -63,30 +63,30 @@ void impulseResponseBPF(float Fb, float Fe, float Fs, int num_taps, std::vector<
 void impulseResponseRRC(const float &Fs, const int &num_taps, std::vector<float> &h)
 {
 	//Duration of each symbol
-	float T_symbol = 1/2375.0;
+	float T_symbol = 1.0/2375.0;
 	//Roll off factor
 	float beta = 0.90;
 	//The response vector
-	h.resize(num_taps); 
+	h.resize(num_taps,0.0); 
 	//Additional declarations
 	float t;
 
 	//Loop for the RRC
 	for(int k = 0; k < num_taps; k++)
 	{
-		t = (float)(((float)((k-num_taps))/2.0)/Fs);
+		t = (float)(((float)(k-num_taps/2.0)/Fs));
 		if(t == 0.0)
 		{
 			h[k] = 1.0 + beta*((4/PI)-1);
 
 		}
-		else if(t == -T_symbol/(4*beta) || t == T_symbol/(4*beta))
+		else if(t == -T_symbol/(4.0*beta) || t == T_symbol/(4.0*beta))
 		{
-			h[k] = (beta/sqrt(2))*(((1+2/PI)*(sin(PI/(4*beta))))+((1-2/PI)*(cos(PI/(4*beta)))));
+			h[k] = (beta/sqrt(2.0))*(((1.0+2.0/PI)*(sin(PI/(4.0*beta))))+((1.0-2.0/PI)*(cos(PI/(4.0*beta)))));
 		}
 		else
 		{
-			h[k] = (sin(PI*t*(1-beta)/T_symbol)+4*beta*(t/T_symbol)*cos(PI*t*(1+beta)/T_symbol))/(PI*t*(1-(4*beta*t/T_symbol)*(4*beta*t/T_symbol))/T_symbol);
+			h[k] = (sin(PI*t*(1.0-beta)/T_symbol)+4.0*beta*(t/T_symbol)*cos(PI*t*(1.0+beta)/T_symbol))/(PI*t*(1.0-(4.0*beta*t/T_symbol)*(4.0*beta*t/T_symbol))/T_symbol);
 		}
 	}
 

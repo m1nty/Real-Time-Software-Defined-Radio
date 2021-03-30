@@ -20,4 +20,5 @@ struct pll_state_type{
 
 void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth, pll_state_type &pll_state);
 
+void fmPLLIQ(std::vector<float> &ncoOut,std::vector<float> &ncoOutQ, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state_type &pll_state);
 #endif

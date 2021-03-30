@@ -58,7 +58,7 @@ if __name__ == "__main__":
     iq_data = np.fromfile(in_fname, dtype='uint8')
     iq_data = (iq_data -128.0)/128.0
     print("Read raw RF data from \"" + in_fname + "\" in uint8 format. Block size is ", len(iq_data))
-    #iq_data = iq_data[0:8*307200]
+    iq_data = iq_data[0:8*307200]
 
     # coefficients for the front-end low-pass filter
     rf_coeff = signal.firwin(rf_taps, \
@@ -151,7 +151,8 @@ if __name__ == "__main__":
         # ------------------------Extraction--------------------------------
         # Performs convoloution to extract the data
         extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,zi=pre_state_extract)
-        print(extract_rds[10])
+        if block_count == 0: 
+            print(extract_rds)
 
         # ---------------------Carrier Recovery-----------------------------
         #Squaring Nonolinearity
@@ -204,28 +205,29 @@ if __name__ == "__main__":
 
         #Clock and data recovery
         if block_count ==0:
-            #int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
-            if(abs(rrc_rds[0]) > abs(rrc_rds[12])):
-                int_offset = 0;
-            else: 
-                int_offset = 12;
+            int_offset = (np.where(rrc_rds[0:24] == np.max(rrc_rds[0:24])))[0][0]
+        #    if(abs(rrc_rds[0]) > abs(rrc_rds[12])):
+        #        int_offset = 0;
+        #    else: 
+        #        int_offset = 12;
+            print("Inital offset for clock recovery ", int_offset)
 
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]
         #print(len(symbols_I)) 
         symbols_Q = rrc_rds_Q[int_offset::24]
         #block processing the offset for the next block 
-        int_offset = int_offset#24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
+        int_offset = 24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
         
         #Plotting
-        if block_count == 2: 
+        if block_count == 0: 
             fig, (p_adjust1) = plt.subplots(nrows=1)
             fig, (rrc) = plt.subplots(nrows=1)
             fig.subplots_adjust(hspace = 1.0)
             p_adjust1.scatter(symbols_I, symbols_Q, s=10)
             p_adjust1.set_ylim(-1.25, 1.25)
-            rrc.plot(rrc_rds[0:240], c = 'r') 
-            rrc.plot(rrc_rds_Q[0:240], c = 'b') 
+            rrc.plot(rrc_rds[0:512], c = 'r') 
+            rrc.plot(rrc_rds_Q[0:512], c = 'b') 
 
         # ---------------------RDS Data Processing--------------------------
         #Screening only needs to happen at block 0
@@ -307,6 +309,7 @@ if __name__ == "__main__":
                         potential_syndrome[i] = (potential_syndrome[i] and not mult) or (not potential_syndrome[i] and mult)
             #convert to int
             potential_syndrome = potential_syndrome.astype(int)
+            print(potential_syndrome)
             #Checks if syndrome A
             if ((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]):
                 if(last_position == -1 or printposition-last_position == 26): 

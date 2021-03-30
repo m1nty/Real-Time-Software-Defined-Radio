@@ -400,6 +400,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
 		impulseResponseRRC(57000, num_taps, rrc_coeff);
 	
+		std::vector<float> lpf_filt_rds_Q,lpf_3k_state_Q,anti_img_state_Q,rrc_state_Q;
+		std::vector<float> rrc_rds_Q;
 		//Loop to calculate all of it 
 		while(true)
 		{
@@ -426,6 +428,11 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			// ------------------------Extraction--------------------------------
 			// Performs convoloution to extract the data 
 			convolveWithDecimPointer(extract_rds, ptr_block,BLOCK_SIZE/20, extract_RDS_coeff, pre_state_extract, 1.0);
+			//if(block_id == 0)
+			//{
+			//	for(unsigned int i = 0; i < extract_rds.size(); i++)
+			//		std::cerr << extract_rds[i];
+			//}
 
 			// ---------------------Carrier Recovery-----------------------------
 			//Squares the elements
@@ -437,66 +444,137 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Second BPF
 			convolveWithDecim(pre_Pll_rds, extract_rds_squared, square_coeff, square_state, 1);
 			//Pll
-			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,pll_state);
+			std::vector<float> post_Pll_Q;
+
+			fmPLLIQ(post_Pll,post_Pll_Q, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/1.5, 0.001,pll_state);
+		//	fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/2, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
 			//mixing 
 			mixed.resize(post_Pll.size());
+			std::vector<float> mixed_Q;
+			mixed_Q.resize(post_Pll.size());
 			for(unsigned m = 0; m < post_Pll.size(); m++)
 			{
 				mixed[m] = post_Pll[m] * extract_rds[m]*2;
-				//std::cerr << mixed[m] << std::endl;
-			}
-			//LPF
-			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
-
-			//Need to use the concoloution from mode 1 for upsampling
-			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
-			for(unsigned int x = 0; x < resample_rds.size(); x++)
-			{
-				resample_rds[x] = resample_rds[x] * upsample_val;
-				//std::cerr << resample_rds[x] << std::endl;
+				mixed_Q[m] = post_Pll_Q[m] * extract_rds[m]*2;
+			//	std::cerr << mixed[m] << std::endl;
 			}
 			
-			//Lets try some sus shit
+			//LPF
+			//convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
+
+			//Wanna plot constalations to check
+			if(block_id == 0)
+			{
+				lpf_3k_state_Q.resize(num_taps-1);
+				anti_img_state_Q.resize(num_taps*19-1);
+				rrc_state_Q.resize(num_taps-1);
+			}
+			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
+			convolveWithDecim(lpf_filt_rds_Q, mixed_Q, lpf_coeff_rds, lpf_3k_state_Q, 1);
+
+			//Resampler
+			//std::vector<float> resample_rds_Q;
+			//convolveWithDecimMode1(resample_rds_Q, lpf_filt_rds_Q, anti_img_coeff,anti_img_state_Q,downsample_val,upsample_val);
+			//convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
+			//
+			//for(unsigned int x = 0; x < resample_rds.size(); x++)
+			//{
+			//	resample_rds[x] = resample_rds[x] * upsample_val;
+			//	resample_rds_Q[x] = resample_rds_Q[x] * upsample_val;
+			//	//std::cerr << resample_rds[x] << std::endl;
+			//}
+			
+			//Need to use the concoloution from mode 1 for upsampling
+
+
+
+
+			//Sus shit for testing 
+			std::vector<float> big, big_filt; 
+			std::vector<float> big_Q, big_filt_Q,resample_rds_Q; 
+			big.resize(lpf_filt_rds.size()*19,0.0);
+			big_Q.resize(lpf_filt_rds.size()*19,0.0);
+			//big_filt.resize(lpf_filt_rds.size()*19,0.0);
+			for(unsigned int i=0; i <lpf_filt_rds.size(); i++)
+			{
+				big[i*19] = lpf_filt_rds[i];
+				big_Q[i*19] = lpf_filt_rds_Q[i];
+				//std::cerr<<big[i*19]<<std::endl;
+			}
+			convolveWithDecim(big_filt, big, anti_img_coeff, anti_img_state, 1);
+			convolveWithDecim(big_filt_Q, big_Q, anti_img_coeff, anti_img_state_Q, 1);
+			resample_rds.resize(lpf_filt_rds.size()*19/80,0.0);
+			resample_rds_Q.resize(lpf_filt_rds.size()*19/80,0.0);
+			for(unsigned int j=0; j < resample_rds.size(); j++)
+			{
+				resample_rds[j] = big_filt[80*j]*19;
+				resample_rds_Q[j] = big_filt_Q[80*j]*19;
+				//std::cerr << resample_rds[j] << std::endl;
+			}
+
+			
+
 
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
+			convolveWithDecim(rrc_rds_Q, resample_rds_Q, rrc_coeff, rrc_state_Q, 1);
+
+			//Clock and data recovery
+			//Determines where to initally sample 
+			if(block_id == 0)
+			{
+				//if(std::abs(rrc_rds[0]) < std::abs(rrc_rds[12]) || std::abs(rrc_rds[24]) < std::abs(rrc_rds[12]))
+				//	inital_offset = 12;
+				//else
+				//	inital_offset =0 ;
+				float placehold = 0;
+				for(unsigned int i = 0; i < 24;i++)
+				{
+					if(std::abs(rrc_rds[i]) > placehold)
+					{
+						placehold = std::abs(rrc_rds[i]); 
+						inital_offset = i; 
+					}
+				}
+				std::cerr << "inital offset for clock recovery = " << inital_offset <<std::endl; 
+			}
+			std::vector<float> symbols_I,symbols_Q;
+			symbols_I.resize(std::floor((rrc_rds.size())/24));
+			symbols_Q.resize(std::floor((rrc_rds.size())/24));
+			//Gets the symbols from the rrc array 
+			for(unsigned int k=0; k < symbols_I.size();k++)
+			{
+				symbols_I[k] = rrc_rds[24*k+inital_offset];
+				symbols_Q[k] = rrc_rds_Q[24*k+inital_offset];
+				//std::cerr << symbols_I[k] <<std::endl;
+			}
+
+			//NOTE May need to add something for block procssing here 
+			for(unsigned int j = 0; j < 24; j++)
+			{
+				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[-1])
+					inital_offset = 24-j; 
+			}
+
+			//Plotting
 			if(block_id == 3)
 			{
 				std::vector<float> time;
 				genIndexVector(time, rrc_rds.size());
 				std::cerr << "VectorLog time"<<std::endl;
 				logVector("rrc", time, rrc_rds);
+				logVector("rrcQ", time, rrc_rds_Q);
+				logVector("constalation", symbols_I, symbols_Q);
 			}
-
-			//Clock and data recovery
-			//Determines where to initally sample 
-			if(block_id == 0)
-			{
-				if(std::abs(rrc_rds[0]) < std::abs(rrc_rds[12]) || std::abs(rrc_rds[24]) < std::abs(rrc_rds[12]))
-					inital_offset = 12;
-				else
-					inital_offset =0 ;
-				std::cerr << "inital offset for clock recovery = " << inital_offset <<std::endl; 
-			}
-			std::vector<float> symbols_I;
-			symbols_I.resize(std::floor((rrc_rds.size()-inital_offset)/24));
-			//Gets the symbols from the rrc array 
-			for(unsigned int k=0; k < symbols_I.size();k++)
-			{
-				symbols_I[k] = rrc_rds[24*k+inital_offset];
-				//std::cerr << symbols_I[k] <<std::endl;
-			}
-
-			//NOTE May need to add something for block procssing here 
 			
 			// ---------------------RDS Data Processing----------------------------
 			//Inital screening 
 			if(block_id == 0)
 			{
 				//Loops through small chunck of symbols vector 
-				for(unsigned int j; j < symbols_I.size()/4; j++)
+				for(unsigned int j; j < symbols_I.size()/2; j++)
 				{
 					//Checks for doubles 
 					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
@@ -513,7 +591,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			}
 			//Now the recovery 
 			std::vector<int> bit_stream; 
-			bit_stream.resize((int)((symbols_I.size()/2)-start_pos));
+			bit_stream.resize((int)(symbols_I.size()/2)-start_pos);
 			
 			//Uses prev bit just in case
 			if(start_pos == 1 && block_id != 0)
@@ -574,16 +652,18 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			position = 0;
 			while(true){
 				//Creates a block of size 26
-				for(unsigned int y = position; y < position+26; y++)
+				for(unsigned int y = 0; y < 26; y++)
 				{
-					block[y-position] = diff_bits[y];
+					block[y] = diff_bits[y+position];
 				}
 				//Matric multiplication 
+				std::fill(potential_syndrome.begin(), potential_syndrome.end(), 0);
 				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
 				{
 					for(unsigned int j = 0 ; j<26 ; j++)
 					{
-						potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
+						//potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
+						potential_syndrome[i] = potential_syndrome[i] ^ (block[j] && H[j][i]);
 					}
 				}
 				//convert to int
@@ -648,7 +728,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			std::fill(post_Pll.begin(), post_Pll.end(), 0);
 			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
 			std::fill(resample_rds.begin(), resample_rds.end(), 0);
+			std::fill(bit_stream.begin(), bit_stream.end(), 0);
+			std::fill(diff_bits.begin(), diff_bits.end(), 0);
 			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
+			//For quad tests
+			std::fill(lpf_filt_rds_Q.begin(), lpf_filt_rds_Q.end(), 0);
+			std::fill(resample_rds_Q.begin(), resample_rds_Q.end(), 0);
+			std::fill(rrc_rds_Q.begin(), rrc_rds_Q.end(), 0);
 			//iterate block id
 			block_id ++;
 
