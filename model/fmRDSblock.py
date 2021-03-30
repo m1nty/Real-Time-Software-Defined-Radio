@@ -127,7 +127,7 @@ if __name__ == "__main__":
     while (block_count+1)*block_size < len(iq_data):
         # if you wish to have shorter runtimes while troubleshooting
         # you can control the above loop exit condition as you see fit
-
+        print("")
         print('Processing block ' + str(block_count))
         # filter to extract the FM channel (I samples are even, Q samples are odd)
         i_filt, state_i_lpf_100k = signal.lfilter(rf_coeff, 1.0, \
@@ -171,14 +171,14 @@ if __name__ == "__main__":
         mixed_rds = np.multiply(extract_rds, post_Pll[0:len(extract_rds):1])*2
         #Q component
         mixed_rds_Q = np.multiply(extract_rds, post_Pll_Q[0:len(extract_rds):1])*2
-        print(mixed_rds)
+        #print(mixed_rds)
 
         #LPF
         #I Compent 
         lpf_filt_rds,lpf_3k_state = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds,zi=lpf_3k_state)
         #Q Compent 
         lpf_filt_rds_Q,lpf_3k_state_Q = signal.lfilter(lpf_coeff_rds,1.0, mixed_rds_Q,zi=lpf_3k_state_Q)
-
+        #print(lpf_filt_rds)
         upsample_rds = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
         upsample_rds_Q = np.zeros(len(lpf_filt_rds)*19) #Creates a list of empty zeros 
 
@@ -211,6 +211,7 @@ if __name__ == "__main__":
 
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]
+        #print(len(symbols_I)) 
         symbols_Q = rrc_rds_Q[int_offset::24]
         #block processing the offset for the next block 
         int_offset = int_offset#24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
@@ -272,7 +273,7 @@ if __name__ == "__main__":
             #It is appending correctly but for some reason it works v bad when we do append 
             bit_stream = np.insert(bit_stream, 0, front_bit, axis=0)
             lonely_bit = symbols_I[-1]
-        print(len(bit_stream))
+        #print("Len bit stream ",len(bit_stream))
 
         #Differential decoding
         if block_count == 0:
@@ -281,7 +282,6 @@ if __name__ == "__main__":
         else:
             offset = 0 
         diff_bits = np.zeros(len(bit_stream)-offset) 
-        print(len(diff_bits))
         #Does XOR on the bits
         for t in range(len(diff_bits)): 
             diff_bits[t] = (prebit and not bit_stream[t+offset]) or (not prebit and bit_stream[t+offset])
@@ -293,7 +293,7 @@ if __name__ == "__main__":
         #Need to check for sydromes: 
         if block_count != 0:
             diff_bits = np.insert(diff_bits, 0, prev_sync_bits, axis=0)
-
+        #print("Len of diff bits ", len(diff_bits))
         position = 0 
         while True:
             block = diff_bits[position:position+26]
@@ -342,7 +342,7 @@ if __name__ == "__main__":
             printposition += 1 
         #Creates list of bits not used 
         prev_sync_bits = diff_bits[position-1::]
-        print(len(prev_sync_bits))
+        #print(len(prev_sync_bits))
 
         #Iterates through the blocks 
         block_count += 1

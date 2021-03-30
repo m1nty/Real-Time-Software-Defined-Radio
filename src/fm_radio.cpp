@@ -326,7 +326,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		//Defining the vectors from python
 		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state;
 		//Other vectors
-		std::vector<float> extract_rds,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
+		std::vector<float> extract_rds,extract_rds_squared,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
 		//Defining constants
 		int num_taps = 151; 
 		unsigned int block_id = 0;
@@ -386,13 +386,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		pre_state_extract.resize(num_taps-1); 
 		square_state.resize(num_taps-1);
 		lpf_3k_state.resize(num_taps-1);
-		anti_img_state.resize(num_taps-1); 
+		anti_img_state.resize(num_taps*19-1); 
 		rrc_state.resize(num_taps-1);
 		//Get coeeficents
 		impulseResponseBPF(inital_RDS_lower_freq, inital_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
 		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
 		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
-		impulseResponseLPF(Fs, cutoff_anti_img, num_taps, anti_img_coeff);
+		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
 		impulseResponseRRC(57000, num_taps, rrc_coeff);
 	
 		//Loop to calculate all of it 
@@ -415,6 +415,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			// ****************************************************************** 
 			// -----------------------RDS Data Processing------------------------ 
 			// ******************************************************************
+			std::cerr << " " << std::endl;
+			std::cerr << "****************Prcoessing Block: " << block_id << std::endl;
 				
 			// ------------------------Extraction--------------------------------
 			// Performs convoloution to extract the data 
@@ -422,12 +424,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			// ---------------------Carrier Recovery-----------------------------
 			//Squares the elements
+			extract_rds_squared.resize(extract_rds.size());
 			for(unsigned n = 0; n < extract_rds.size(); n++) 
 			{
-				extract_rds[n] = extract_rds[n]*extract_rds[n]; 
+				extract_rds_squared[n] = extract_rds[n]*extract_rds[n]; 
 			}
 			//Second BPF
-			convolveWithDecim(pre_Pll_rds, extract_rds, square_coeff, square_state, 1.0);
+			convolveWithDecim(pre_Pll_rds, extract_rds_squared, square_coeff, square_state, 1.0);
 			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
@@ -441,12 +444,12 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//LPF
 			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1.0);
 
-
 			//Need to use the concoloution from mode 1 for upsampling
 			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
 			for(unsigned int x = 0; x < resample_rds.size(); x++)
 			{
 				resample_rds[x] = resample_rds[x] * upsample_val;
+				//std::cerr << resample_rds[x] << std::endl;
 			}
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1.0);
@@ -454,18 +457,20 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Cock and data recovery
 			if(block_id == 0)
 			{
-				if(rrc_rds[0] > rrc_rds[12])
+				if(rrc_rds[0] < rrc_rds[12])
 					inital_offset = 12;
 				else
 					inital_offset =0 ;
+				std::cerr << "inital offset for clock recovery = " << inital_offset <<std::endl; 
 			}
 			std::vector<float> symbols_I;
 			//Maybe more to this
 			symbols_I.resize(std::floor((rrc_rds.size()-inital_offset)/24));
+			
 			for(unsigned int k=inital_offset; k < symbols_I.size();k++)
 			{
 				symbols_I[k] = rrc_rds[24*k+inital_offset];
-			//	std::cerr << symbols_I[k] <<std::endl;
+				std::cerr << symbols_I[k] <<std::endl;
 			}
 
 			//NOTE May need to add something for block procssing here 
@@ -485,7 +490,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 					start_pos = 1;
 				else if(count_1_pos > count_0_pos) 
 					start_pos = 0;
-				std::cerr << "Start position in Manchester " << start_pos << std::endl;
+				std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
 			}
 			//Now the recovery 
 			std::vector<int> bit_stream; 
@@ -515,6 +520,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				bit_stream.insert(bit_stream.begin(), front_bit);
 				front_bit = symbols_I[-1]; 
 			}
+			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
 
 			//Differential decoding
 			if(block_id == 0)
@@ -534,13 +540,15 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				diff_bits[t] = prebit ^ bit_stream[t+offset];
 				prebit = bit_stream[t+offset];
 			}
+			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 
 			//From Sync
 			if(block_id != 0){
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
 
-			std::cerr << "****************Prcoessing Block: " << block_id << std::endl;
+			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
+
 			position = 0;
 			while(true){
 				//

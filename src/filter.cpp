@@ -72,12 +72,13 @@ void impulseResponseRRC(const float &Fs, const int &num_taps, std::vector<float>
 	float t;
 
 	//Loop for the RRC
-	for(unsigned int k = 0; k < num_taps; k++)
+	for(int k = 0; k < num_taps; k++)
 	{
-		t = (float)(((k-num_taps)/2.0)/Fs);
+		t = (float)(((float)((k-num_taps))/2.0)/Fs);
 		if(t == 0.0)
 		{
 			h[k] = 1.0 + beta*((4/PI)-1);
+
 		}
 		else if(t == -T_symbol/(4*beta) || t == T_symbol/(4*beta))
 		{
