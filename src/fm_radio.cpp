@@ -557,75 +557,32 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Pll
 			std::vector<float> post_Pll_Q;
 
-			fmPLLIQ(post_Pll,post_Pll_Q, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/1.45, 0.001,pll_state);
-		//	fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/2, 0.001,pll_state);
+			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/2, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
 			//mixing 
 			mixed.resize(post_Pll.size());
 			std::vector<float> mixed_Q;
-			mixed_Q.resize(post_Pll.size());
 			for(unsigned m = 0; m < post_Pll.size(); m++)
 			{
 				mixed[m] = post_Pll[m] * extract_rds[m]*2;
-				mixed_Q[m] = post_Pll_Q[m] * extract_rds[m]*2;
 			//	std::cerr << mixed[m] << std::endl;
 			}
 			
-			//LPF
-			//convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
-			//Conditional to resize these values in order to get info to plot the constallation 
-			if(block_id == 0)
-			{
-				lpf_3k_state_Q.resize(num_taps-1);
-				anti_img_state_Q.resize(num_taps*19-1);
-				rrc_state_Q.resize(num_taps-1);
-			}
 			//Low pass filter 
 			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
-			convolveWithDecim(lpf_filt_rds_Q, mixed_Q, lpf_coeff_rds, lpf_3k_state_Q, 1);
 
 			//Resampler
-			std::vector<float> resample_rds_Q;
-			convolveWithDecimMode1(resample_rds_Q, lpf_filt_rds_Q, anti_img_coeff,anti_img_state_Q,downsample_val,upsample_val);
 			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
 			
 			for(unsigned int x = 0; x < resample_rds.size(); x++)
 			{
 				resample_rds[x] = resample_rds[x] * upsample_val;
-				resample_rds_Q[x] = resample_rds_Q[x] * upsample_val;
 				//std::cerr << resample_rds[x] << std::endl;
 			}
 			
-			//Need to use the concoloution from mode 1 for upsampling
-
-
-			////Testing
-			//std::vector<float> big, big_filt; 
-			//std::vector<float> big_Q, big_filt_Q,resample_rds_Q; 
-			//big.resize(lpf_filt_rds.size()*19,0.0);
-			//big_Q.resize(lpf_filt_rds.size()*19,0.0);
-			////big_filt.resize(lpf_filt_rds.size()*19,0.0);
-			//for(unsigned int i=0; i <lpf_filt_rds.size(); i++)
-			//{
-			//	big[i*19] = lpf_filt_rds[i];
-			//	big_Q[i*19] = lpf_filt_rds_Q[i];
-			//	//std::cerr<<big[i*19]<<std::endl;
-			//}
-			//convolveWithDecim(big_filt, big, anti_img_coeff, anti_img_state, 1);
-			//convolveWithDecim(big_filt_Q, big_Q, anti_img_coeff, anti_img_state_Q, 1);
-			//resample_rds.resize(lpf_filt_rds.size()*19/80,0.0);
-			//resample_rds_Q.resize(lpf_filt_rds.size()*19/80,0.0);
-			//for(unsigned int j=0; j < resample_rds.size(); j++)
-			//{
-			//	resample_rds[j] = big_filt[80*j]*19;
-			//	resample_rds_Q[j] = big_filt_Q[80*j]*19;
-			//	//std::cerr << resample_rds[j] << std::endl;
-			//}
-
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
-			convolveWithDecim(rrc_rds_Q, resample_rds_Q, rrc_coeff, rrc_state_Q, 1);
 
 			//Clock and data recovery
 			//Determines where to initially sample 
@@ -645,16 +602,14 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				std::cerr << "initial offset for clock recovery = " << initial_offset <<std::endl; 
 			}
-			std::vector<float> symbols_I,symbols_Q;
+			std::vector<float> symbols_I;
 			//symbols_I.resize(std::floor((rrc_rds.size())/24));
 			symbols_I.resize((int)((rrc_rds.size())/24));
-			//std::cerr<< "Size of symbols vector = " << symbols_I.size() <<std::endl;
-			symbols_Q.resize(std::floor((rrc_rds.size())/24));
+			//
 			//Gets the symbols from the rrc array 
 			for(unsigned int k=0; k < symbols_I.size();k++)
 			{
 				symbols_I[k] = rrc_rds[24*k+initial_offset];
-				symbols_Q[k] = rrc_rds_Q[24*k+initial_offset];
 				//std::cerr << symbols_I[k] <<std::endl;
 			}
 
@@ -670,15 +625,15 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			}
 
 			//Plotting to see if RRC and constalations are corrcet 
-			if(block_id == 1)
-			{
-				std::vector<float> time;
-				genIndexVector(time, rrc_rds.size());
-				std::cerr << "VectorLog time"<<std::endl;
-				logVector("rrc", time, rrc_rds);
-				logVector("rrcQ", time, rrc_rds_Q);
-				logVector("constalation", symbols_I, symbols_Q);
-			}
+			//if(block_id == 1)
+			//{
+			//	std::vector<float> time;
+			//	genIndexVector(time, rrc_rds.size());
+			//	std::cerr << "VectorLog time"<<std::endl;
+			//	logVector("rrc", time, rrc_rds);
+			//	logVector("rrcQ", time, rrc_rds_Q);
+			//	logVector("constalation", symbols_I, symbols_Q);
+			//}
 			
 			// ---------------------RDS Data Processing----------------------------
 			//initial screening 
@@ -780,10 +735,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			std::fill(bit_stream.begin(), bit_stream.end(), 0);
 			std::fill(diff_bits.begin(), diff_bits.end(), 0);
 			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
-			//For quad tests
-			std::fill(lpf_filt_rds_Q.begin(), lpf_filt_rds_Q.end(), 0);
-			std::fill(resample_rds_Q.begin(), resample_rds_Q.end(), 0);
-			std::fill(rrc_rds_Q.begin(), rrc_rds_Q.end(), 0);
 
 			//iterate block id
 			block_id ++;
