@@ -151,7 +151,6 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 }
 
 //Thread for mono and stero 
-//Need to add all the shit for mode 0  
 void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
 {
 	//Depending on the mode sets the sampling frequency to the corresponding value
@@ -228,7 +227,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		queue_lock.unlock();
 		cvar.notify_one();
 
-		//Mode 1, with all the upsamping and pull shit 
+		//Mode 1, with Upsample/Pulls
 		if(mode == 1)
 		{
 			convolveWithDecimMode1Pointer(audio_block, ptr_block, block_size/20, mono_coeff, audio_inital, audio_decim, audio_up);
@@ -490,7 +489,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 
 
-			//Sus shit for testing 
+			//Testing
 			std::vector<float> big, big_filt; 
 			std::vector<float> big_Q, big_filt_Q,resample_rds_Q; 
 			big.resize(lpf_filt_rds.size()*19,0.0);

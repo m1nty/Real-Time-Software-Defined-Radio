@@ -163,7 +163,6 @@ if __name__ == "__main__":
         pre_Pll_rds,square_state = signal.lfilter(square_coeff,1.0,squared_rds,zi=square_state)
         
         #PLL 
-        #NOTE Needa ass shit
         post_Pll, post_Pll_Q, state_Pll =  fmPll(pre_Pll_rds, freq_centered, 240000, state_Pll, ncoScale = 0.5, phaseAdjust =phase_adj , normBandwidth = 0.001)
 
         # -----------------------Demodulation-------------------------------
@@ -300,7 +299,7 @@ if __name__ == "__main__":
         position = 0 
         while True:
             block = diff_bits[position:position+26]
-            #Below line used to test if this shit works correctly, and it do
+            #Below line for testing
             potential_syndrome = np.zeros(10) 
             #Does the binary matrix multiplication that uses XORs and ANDs
             for i in range(len(potential_syndrome)):

@@ -181,7 +181,6 @@ if __name__ == "__main__":
     print("RRC output this long ", len(rrc_rds))
 
     #Clock and data recovery
-    #Need to sample the shit
     #Check each 24 samples to try and identify the symbols
     int_offset = 0 
     
@@ -241,13 +240,12 @@ if __name__ == "__main__":
         prebit = bit_stream[t+1] 
     print("Size of diff bit ", len(diff_bits))
 
-    #NOTE This shit slaps, problem is not here 
     #Frame Sync and Error detection 
     #Need to check for sydromes: 
     position = 0 
     while True:
         block = diff_bits[position:position+26]
-        #Below line used to test if this shit works correctly, and it do
+        #Below line for testing
         potential_syndrome = np.zeros(10) 
         #Does the binary matrix multiplication that uses XORs and ANDs
         for i in range(len(potential_syndrome)):
