@@ -336,3 +336,33 @@ void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &
 		zi[i] = x[x.size()-zi.size()-1+i]; 
 	}
 }
+//Downsamples and does convoloution at the same time in order to go speedy 
+void convolveWithDecimSquare(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num)
+{
+	//Creates vector for down sampled data
+	y.resize(x.size()/decim_num);
+	//Loops through vlaues to do convoloution
+        int count;
+        for (auto n = 0; n < y.size(); n++)
+	{
+                count = 0;
+                for (auto k = 0; k < h.size(); k++)
+		{
+			if((decim_num*n-k >= 0) && (decim_num*n-k < x.size()))
+			{
+				//Multiplies n by the downsample number so not every value is used only the samples we need
+                                y[n] += pow(x[decim_num*n-k],2)*h[k];
+			}
+			//Previous state data
+			else
+			{
+                                y[n] += zi[zi.size()-1-count]*h[k];
+				count += 1;
+			}
+                }
+        }
+	//Assigns next zi value 
+	for(auto i = 0; i < zi.size(); i++){
+		zi[i] = x[x.size()-zi.size()-1+i]; 
+	}
+}

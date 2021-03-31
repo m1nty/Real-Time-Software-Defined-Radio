@@ -547,13 +547,14 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			// ---------------------Carrier Recovery-----------------------------
 			//Squares the elements
-			extract_rds_squared.resize(extract_rds.size());
-			for(unsigned n = 0; n < extract_rds.size(); n++) 
-			{
-				extract_rds_squared[n] = std::pow(extract_rds[n],2);
-			}
-			//Second BPF
-			convolveWithDecim(pre_Pll_rds, extract_rds_squared, square_coeff, square_state, 1);
+			//extract_rds_squared.resize(extract_rds.size());
+			//for(unsigned n = 0; n < extract_rds.size(); n++) 
+			//{
+			//	extract_rds_squared[n] = std::pow(extract_rds[n],2);
+			//}
+			
+			//Combined squaring and Second BPF
+			convolveWithDecimSquare(pre_Pll_rds, extract_rds, square_coeff, square_state, 1);
 			//Pll
 			std::vector<float> post_Pll_Q;
 
@@ -561,12 +562,11 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			// ---------------------Demodulation-mixed----------------------------
 			//mixing 
-			mixed.resize(post_Pll.size());
-			std::vector<float> mixed_Q;
+			if(block_id == 0)
+				mixed.resize(post_Pll.size());
 			for(unsigned m = 0; m < post_Pll.size(); m++)
 			{
 				mixed[m] = post_Pll[m] * extract_rds[m]*2;
-			//	std::cerr << mixed[m] << std::endl;
 			}
 			
 			//Low pass filter 
@@ -596,10 +596,10 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				}
 				std::cerr << "initial offset for clock recovery = " << initial_offset <<std::endl; 
 			}
-			std::vector<float> symbols_I;
 			//symbols_I.resize(std::floor((rrc_rds.size())/24));
-			symbols_I.resize((int)((rrc_rds.size())/24));
-			//
+			if(block_id == 0)
+				symbols_I.resize((int)((rrc_rds.size())/24));
+			
 			//Gets the symbols from the rrc array 
 			for(unsigned int k=0; k < symbols_I.size();k++)
 			{
@@ -721,7 +721,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Fills these vectors with zeros
 			std::fill(extract_rds.begin(), extract_rds.end(), 0);
 			std::fill(pre_Pll_rds.begin(), pre_Pll_rds.end(), 0);
-			std::fill(post_Pll.begin(), post_Pll.end(), 0);
+			//std::fill(post_Pll.begin(), post_Pll.end(), 0);
 			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
 			std::fill(resample_rds.begin(), resample_rds.end(), 0);
 			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);

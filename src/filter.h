@@ -33,4 +33,5 @@ void impulseResponseRRC(const float &Fs, const int &num_taps, std::vector<float>
 
 void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample);
 
+void convolveWithDecimSquare(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num);
 #endif // DY4_FILTER_H
