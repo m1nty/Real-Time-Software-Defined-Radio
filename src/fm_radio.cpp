@@ -562,15 +562,15 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			// ---------------------Demodulation-mixed----------------------------
 			//mixing 
-			if(block_id == 0)
-				mixed.resize(post_Pll.size());
-			for(unsigned m = 0; m < post_Pll.size(); m++)
-			{
-				mixed[m] = post_Pll[m] * extract_rds[m]*2;
-			}
+			//if(block_id == 0)
+			//	mixed.resize(post_Pll.size());
+			//for(unsigned m = 0; m < post_Pll.size(); m++)
+			//{
+			//	mixed[m] = post_Pll[m] * extract_rds[m]*2;
+			//}
 			
-			//Low pass filter 
-			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
+			//Low pass filter combined with mixer
+			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
 
 			//Resampler
 			convolveWithDecimMode1RDS(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
