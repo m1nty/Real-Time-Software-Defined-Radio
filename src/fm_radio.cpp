@@ -510,7 +510,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		impulseResponseBPF(initial_RDS_lower_freq, initial_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
 		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
 		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
-		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
+		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps, anti_img_coeff);
 		impulseResponseRRC(57000, num_taps, rrc_coeff);
 	
 		//Loop to calculate all of it 
@@ -539,20 +539,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			// ------------------------Extraction--------------------------------
 			// Performs convoloution to extract the data 
 			convolveWithDecimPointer(extract_rds, ptr_block,BLOCK_SIZE/20, extract_RDS_coeff, pre_state_extract, 1.0);
-			//if(block_id == 0)
-			//{
-			//	for(unsigned int i = 0; i < 100; i++)
-			//		std::cerr << extract_rds[i]<<std::endl;
-			//}
 
 			// ---------------------Carrier Recovery-----------------------------
-			//Squares the elements
-			//extract_rds_squared.resize(extract_rds.size());
-			//for(unsigned n = 0; n < extract_rds.size(); n++) 
-			//{
-			//	extract_rds_squared[n] = std::pow(extract_rds[n],2);
-			//}
-			
 			//Combined squaring and Second BPF
 			convolveWithDecimSquare(pre_Pll_rds, extract_rds, square_coeff, square_state, 1);
 			//Pll
@@ -561,22 +549,14 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/2, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
-			//mixing 
-			//if(block_id == 0)
-			//	mixed.resize(post_Pll.size());
-			//for(unsigned m = 0; m < post_Pll.size(); m++)
-			//{
-			//	mixed[m] = post_Pll[m] * extract_rds[m]*2;
-			//}
-			
 			//Low pass filter combined with mixer
 			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
 
 			//Resampler
-			convolveWithDecimMode1RDS(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
+			convolveWithDecimMode1RDS(rrc_rds, lpf_filt_rds, anti_img_coeff,rrc_coeff,anti_img_state,downsample_val,upsample_val);
 			
 			//RRC Filter
-			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
+			//convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
 
 			//Clock and data recovery
 			//Determines where to initially sample 
