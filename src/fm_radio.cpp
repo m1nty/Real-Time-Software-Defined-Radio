@@ -322,8 +322,134 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	}
 }
 
+void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe)
+{
+	if(mode == 0)
+	{
+		std::vector<int> diff_bits;
+		int block_id = 0;
+		unsigned int position = 0;
+		unsigned int printposition = 0; 
+		int last_position = -1;
+		std::vector<int> potential_syndrome,block,prev_sync_bits;
+		potential_syndrome.resize(10);
+		block.resize(26);
+		prev_sync_bits.resize(27);
+		std::vector<std::vector<int>> H {{1,0,0,0,0,0,0,0,0,0},{0,1,0,0,0,0,0,0,0,0},{0,0,1,0,0,0,0,0,0,0},{0,0,0,1,0,0,0,0,0,0},{0,0,0,0,1,0,0,0,0,0},{0,0,0,0,0,1,0,0,0,0},{0,0,0,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,1,0,0},{0,0,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,0,0,0,1},{1,0,1,1,0,1,1,1,0,0},{0,1,0,1,1,0,1,1,1,0},{0,0,1,0,1,1,0,1,1,1},{1,0,1,0,0,0,0,1,1,1},{1,1,1,0,0,1,1,1,1,1},{1,1,0,0,0,1,0,0,1,1},{1,1,0,1,0,1,0,1,0,1},{1,1,0,1,1,1,0,1,1,0},{0,1,1,0,1,1,1,0,1,1},{1,0,0,0,0,0,0,0,0,1},{1,1,1,1,0,1,1,1,0,0}, {0,1,1,1,1,0,1,1,1,0},{0,0,1,1,1,1,0,1,1,1},{1,0,1,0,1,0,0,1,1,1},{1,1,1,0,0,0,1,1,1,1}, {1,1,0,0,0,1,1,0,1,1}};
+		std::vector<int> syndrome_A {1,1,1,1,0,1,1,0,0,0};
+		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
+		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
+		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
+		while(true) 
+		{
+			diff_bits.resize(76);
+			std::unique_lock<std::mutex> frame_lock(frame_mutex);
+			
+			//Waits until there is something in the queue
+			if(frame_queue.empty())
+			{
+				cvarframe.wait(frame_lock);
+			}
+			//Assigns front of quene to vector
+			diff_bits = frame_queue.front();
+			//Pops the value of the queue 
+			frame_queue.pop();
+			frame_lock.unlock();
+			cvarframe.notify_one();
+
+			//Frame Sync
+			//insert remaining bits to front of vector
+			if(block_id != 0){
+				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
+			}
+			position = 0;
+			while(true){
+				//Creates a block of size 26
+				for(unsigned int y = 0; y < 26; y++)
+				{
+					block[y] = diff_bits[y+position];
+				}
+				//Matrix multiplication 
+				std::fill(potential_syndrome.begin(), potential_syndrome.end(), 0);
+				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
+				{
+					for(unsigned int j = 0 ; j<26 ; j++)
+					{
+						//potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
+						potential_syndrome[i] = potential_syndrome[i] ^ (block[j] && H[j][i]);
+					}
+				}
+				//convert to int
+				//potential_syndrome = static_cast<short int>(potential_syndrome);
+				//std::cerr << "Potential syndrome " << potential_syndrome[0] <<potential_syndrome[1]<< potential_syndrome[2]<<potential_syndrome[3]<<potential_syndrome[4]<<potential_syndrome[5]<<potential_syndrome[6]<<potential_syndrome[7]<<potential_syndrome[8]<<potential_syndrome[9]<<std::endl;
+				//Checks if syndrome A
+				if(potential_syndrome == syndrome_A){ 
+					if(last_position == -1 || printposition-last_position == 26){ 
+						last_position = printposition;
+						std::cerr << "Syndrome A at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
+					}
+				}
+				//Checks if syndrome B
+				else if(potential_syndrome == syndrome_B){ 
+					if(last_position == -1 || printposition-last_position == 26){ 
+						std::cerr << "Syndrome B at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
+					}
+				}
+				//Checks if syndrome C
+				else if(potential_syndrome == syndrome_C){ 
+					if(last_position == -1 || printposition-last_position == 26){ 
+						std::cerr << "Syndrome C at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
+					}
+				}
+				//Checks if syndrome D
+				else if(potential_syndrome == syndrome_D){
+					if(last_position == -1 || printposition-last_position == 26){ 
+						std::cerr << "Syndrome D at position " << printposition << std::endl;
+						last_position = printposition;
+					}
+					else{
+						std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
+					}
+				}
+				//Breaks once it reaches the end
+				position += 1;
+				if(position+26 > diff_bits.size()-1)
+				{
+					//std::cerr<< "Size of diff_bit = " << diff_bits.size() << std::endl; 
+					//std::cerr <<"Position left at " << position << std::endl;
+					break;
+				}
+				printposition+=1;
+			}
+			//Creates list of bits not used 
+			for(unsigned int g = 0; g < prev_sync_bits.size(); g++)
+			{
+				//std::cerr << g << std::endl;
+				prev_sync_bits[g] = diff_bits[position-1+g];
+				//std::cerr << prev_sync_bits[g];
+			}
+
+			if((std::cin.rdstate()) != 0&&frame_queue.empty())
+			{
+				break;
+			}
+		}
+	}
+}
 //RDS Thread
-void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
+void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar, std::queue<std::vector<int>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
 {
 	if(mode == 0)
 	{
@@ -362,7 +488,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		unsigned int rrc_taps = 151;
 		//Values for clock recovery
 		unsigned int initial_offset = 0; 
-		int final_symb = 0; 
 		//Differential decoding 
 		int count_0_pos =0;
 		int count_1_pos = 0;
@@ -371,19 +496,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		int front_bit = 0; 
 		int prebit = 0; 
 		unsigned int offset = 0;
-		//Frame sync 
-		unsigned int position = 0;
-		unsigned int printposition = 0; 
-		int last_position = -1;
-		std::vector<int> potential_syndrome,block,prev_sync_bits;
-		potential_syndrome.resize(10);
-		block.resize(26);
-		prev_sync_bits.resize(27);
-		std::vector<std::vector<int>> H {{1,0,0,0,0,0,0,0,0,0},{0,1,0,0,0,0,0,0,0,0},{0,0,1,0,0,0,0,0,0,0},{0,0,0,1,0,0,0,0,0,0},{0,0,0,0,1,0,0,0,0,0},{0,0,0,0,0,1,0,0,0,0},{0,0,0,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,1,0,0},{0,0,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,0,0,0,1},{1,0,1,1,0,1,1,1,0,0},{0,1,0,1,1,0,1,1,1,0},{0,0,1,0,1,1,0,1,1,1},{1,0,1,0,0,0,0,1,1,1},{1,1,1,0,0,1,1,1,1,1},{1,1,0,0,0,1,0,0,1,1},{1,1,0,1,0,1,0,1,0,1},{1,1,0,1,1,1,0,1,1,0},{0,1,1,0,1,1,1,0,1,1},{1,0,0,0,0,0,0,0,0,1},{1,1,1,1,0,1,1,1,0,0}, {0,1,1,1,1,0,1,1,1,0},{0,0,1,1,1,1,0,1,1,1},{1,0,1,0,1,0,0,1,1,1},{1,1,1,0,0,0,1,1,1,1}, {1,1,0,0,0,1,1,0,1,1}};
-		std::vector<int> syndrome_A {1,1,1,1,0,1,1,0,0,0};
-		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
-		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
-		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
 
 		//Define initial states
 		pre_state_extract.resize(num_taps-1); 
@@ -400,6 +512,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 	
 		std::vector<float> lpf_filt_rds_Q,lpf_3k_state_Q,anti_img_state_Q,rrc_state_Q;
 		std::vector<float> rrc_rds_Q;
+
 		//Loop to calculate all of it 
 		while(true)
 		{
@@ -487,8 +600,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Need to use the concoloution from mode 1 for upsampling
 
 
-
-
 			////Testing
 			//std::vector<float> big, big_filt; 
 			//std::vector<float> big_Q, big_filt_Q,resample_rds_Q; 
@@ -522,7 +633,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			if(block_id == 0)
 			{
 				//finds the index of the max
-				float placehold = rrc_rds[0];
+				//float placehold = abs(rrc_rds[0]);
+				float placehold = abs(rrc_rds[0]);
 				for(unsigned int i = 1; i < 24;i++)
 				{
 					if(std::abs(rrc_rds[i]) > placehold)
@@ -558,7 +670,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			}
 
 			//Plotting to see if RRC and constalations are corrcet 
-			if(block_id == 0)
+			if(block_id == 1)
 			{
 				std::vector<float> time;
 				genIndexVector(time, rrc_rds.size());
@@ -643,92 +755,21 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
 
-			//From Sync
-			//insert remaining bits to front of vector
-			if(block_id != 0){
-				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
-			}
-
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 
-			position = 0;
-			while(true){
-				//Creates a block of size 26
-				for(unsigned int y = 0; y < 26; y++)
-				{
-					block[y] = diff_bits[y+position];
-				}
-				//Matrix multiplication 
-				std::fill(potential_syndrome.begin(), potential_syndrome.end(), 0);
-				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
-				{
-					for(unsigned int j = 0 ; j<26 ; j++)
-					{
-						//potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
-						potential_syndrome[i] = potential_syndrome[i] ^ (block[j] && H[j][i]);
-					}
-				}
-				//convert to int
-				//potential_syndrome = static_cast<short int>(potential_syndrome);
-				//std::cerr << "Potential syndrome " << potential_syndrome[0] <<potential_syndrome[1]<< potential_syndrome[2]<<potential_syndrome[3]<<potential_syndrome[4]<<potential_syndrome[5]<<potential_syndrome[6]<<potential_syndrome[7]<<potential_syndrome[8]<<potential_syndrome[9]<<std::endl;
-				//Checks if syndrome A
-				if(potential_syndrome == syndrome_A){ 
-					if(last_position == -1 || printposition-last_position == 26){ 
-						last_position = printposition;
-						std::cerr << "Syndrome A at position " << printposition << std::endl;
-						last_position = printposition;
-					}
-					else{
-						std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
-					}
-				}
-				//Checks if syndrome B
-				else if(potential_syndrome == syndrome_B){ 
-					if(last_position == -1 || printposition-last_position == 26){ 
-						std::cerr << "Syndrome B at position " << printposition << std::endl;
-						last_position = printposition;
-					}
-					else{
-						std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
-					}
-				}
-				//Checks if syndrome C
-				else if(potential_syndrome == syndrome_C){ 
-					if(last_position == -1 || printposition-last_position == 26){ 
-						std::cerr << "Syndrome C at position " << printposition << std::endl;
-						last_position = printposition;
-					}
-					else{
-						std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
-					}
-				}
-				//Checks if syndrome D
-				else if(potential_syndrome == syndrome_D){
-					if(last_position == -1 || printposition-last_position == 26){ 
-						std::cerr << "Syndrome D at position " << printposition << std::endl;
-						last_position = printposition;
-					}
-					else{
-						std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
-					}
-				}
-				//Breaks once it reaches the end
-				position += 1;
-				if(position+26 > diff_bits.size()-1)
-				{
-					//std::cerr<< "Size of diff_bit = " << diff_bits.size() << std::endl; 
-					//std::cerr <<"Position left at " << position << std::endl;
-					break;
-				}
-				printposition+=1;
-			}
-			//Creates list of bits not used 
-			for(unsigned int g = 0; g < prev_sync_bits.size(); g++)
+			//Additional thread for frame sync
+			std::unique_lock<std::mutex> frame_lock(frame_mutex);
+			if(frame_queue.size() == QUEUE_BLOCKS-1)
 			{
-				//std::cerr << g << std::endl;
-				prev_sync_bits[g] = diff_bits[position-1+g];
-				//std::cerr << prev_sync_bits[g];
+				cvar.wait(frame_lock);
 			}
+			frame_queue.push(diff_bits);
+
+			block_id ++;
+			frame_lock.unlock();
+			cvarframe.notify_one();
+
+			//Frame Sync
 
 			//Fills these vectors with zeros
 			std::fill(extract_rds.begin(), extract_rds.end(), 0);
@@ -756,6 +797,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 	}
 }
 	
+
+
 //Need to get args working
 int main(int argc, char* argv[])
 {
@@ -794,7 +837,7 @@ int main(int argc, char* argv[])
 	std::queue<void *> sync_queue;
 	std::queue<void *> rds_queue;
 	std::mutex radio_mutex;
-	std::condition_variable cvar,cvar1; 
+	std::condition_variable cvar,cvar1,cvarframe; 
 
 	//THIS IS STUFF FOR PLOTTING IN CASE WE NEEDA DO THAT 
 	//define values needed for processing
@@ -803,17 +846,22 @@ int main(int argc, char* argv[])
 	std::vector<float> Xmag;
 	std::vector<float> psd_est, freq;
 	std::vector<float> psd_est1, freq1;
+	//
+	std::queue<std::vector<int>> frame_queue;
+	std::mutex frame_mutex;
+	//std::condition_variable cvarframe; 
 	
 	//Creates threads
 	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar),std::ref(cvar1));
 	std::thread mono_stero = std::thread(mono_stero_thread, std::ref(mode), std::ref(sync_queue), std::ref(radio_mutex), std::ref(cvar));
-	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar1));
+	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar1),std::ref(frame_queue), std::ref(frame_mutex), std::ref(cvarframe));
+	std::thread frame= std::thread(frame_thread, std::ref(mode), std::ref(frame_queue), std::ref(frame_mutex), std::ref(cvarframe));
 
 	//Once all standard in blocks have been read, threads are joined
-	std::cerr << "do we get here" << std::endl;
 	rf.join();
 	mono_stero.join(); 
 	rds.join();
+	frame.join();
 
 	//Print this case I always forget the command
 	std::cerr << "Run: gnuplot -e 'set terminal png size 1024,768' example.gnuplot > ../data/example.png"<< std::endl;
