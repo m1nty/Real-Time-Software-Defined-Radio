@@ -518,6 +518,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			//Clock and data recovery
 			//Determines where to initially sample 
+			//Determines where to initally sample rate by finding the max of the first 24 samples 
 			if(block_id == 0)
 			{
 				//finds the index of the max
