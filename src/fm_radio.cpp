@@ -496,6 +496,9 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		int front_bit = 0; 
 		int prebit = 0; 
 		unsigned int offset = 0;
+		std::vector<int> bit_stream; 
+		std::vector<int> diff_bits; 
+		std::vector<float> symbols_I;
 
 		//Define initial states
 		pre_state_extract.resize(num_taps-1); 
@@ -510,9 +513,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
 		impulseResponseRRC(57000, num_taps, rrc_coeff);
 	
-		std::vector<float> lpf_filt_rds_Q,lpf_3k_state_Q,anti_img_state_Q,rrc_state_Q;
-		std::vector<float> rrc_rds_Q;
-
 		//Loop to calculate all of it 
 		while(true)
 		{
@@ -573,13 +573,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			convolveWithDecim(lpf_filt_rds, mixed, lpf_coeff_rds, lpf_3k_state, 1);
 
 			//Resampler
-			convolveWithDecimMode1(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
-			
-			for(unsigned int x = 0; x < resample_rds.size(); x++)
-			{
-				resample_rds[x] = resample_rds[x] * upsample_val;
-				//std::cerr << resample_rds[x] << std::endl;
-			}
+			convolveWithDecimMode1RDS(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
 			
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
@@ -653,11 +647,10 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 					start_pos = 1;
 				else if(count_1_pos > count_0_pos) 
 					start_pos = 0;
-				std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
+				//std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
+				bit_stream.resize((int)(symbols_I.size()/2)-start_pos);
 			}
 			//Now the recovery 
-			std::vector<int> bit_stream; 
-			bit_stream.resize((int)(symbols_I.size()/2)-start_pos);
 			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
 			
 			//Uses prev bit just in case
@@ -683,7 +676,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			{
 				bit_stream.insert(bit_stream.begin(), front_bit);
 				lonely_bit = symbols_I[symbols_I.size()-1]; 
-				std::cerr << bit_stream.size()  << std::endl;
+				//std::cerr << bit_stream.size()  << std::endl;
 			}
 			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
 
@@ -699,7 +692,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				offset = 0; 
 			}
 			//Perform XOR on bits
-			std::vector<int> diff_bits;
 			diff_bits.resize(bit_stream.size()-offset);
 			for(unsigned int t = 0; t< diff_bits.size(); t++)
 			{
@@ -716,7 +708,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
 			if(frame_queue.size() == QUEUE_BLOCKS-1)
 			{
-				cvar.wait(frame_lock);
+				cvarframe.wait(frame_lock);
 			}
 			frame_queue.push(diff_bits);
 
@@ -732,8 +724,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			std::fill(post_Pll.begin(), post_Pll.end(), 0);
 			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
 			std::fill(resample_rds.begin(), resample_rds.end(), 0);
-			std::fill(bit_stream.begin(), bit_stream.end(), 0);
-			std::fill(diff_bits.begin(), diff_bits.end(), 0);
 			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
 
 			//iterate block id
