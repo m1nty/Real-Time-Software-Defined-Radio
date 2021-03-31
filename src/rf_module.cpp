@@ -10,6 +10,7 @@ Implementing fmSupportLib.py refactored in C++
 #include "genfunc.h"
 
 void fmDemodArctan(const std::vector<float> &I, const std::vector<float> &Q,std::vector<float> &prev_phase, float* &queue_block) {
+//Function to perform demodulation on the IQ samples 
 	prev_phase = {0.0, 0.0};
 	float prev_I = prev_phase[0];
 	float prev_Q = prev_phase[1];
@@ -22,7 +23,7 @@ void fmDemodArctan(const std::vector<float> &I, const std::vector<float> &Q,std:
 		} 
 		else
 		{
-			*(queue_block+k) = (I[k] * (Q[k]-prev_Q) - Q[k] * (I[k]-prev_I)) / (pow(I[k],2) + pow(Q[k],2));
+			*(queue_block+k) =(I[k]*(Q[k]-prev_Q)-Q[k]*(I[k]-prev_I))/(pow(I[k],2)+pow(Q[k],2));
 		}
 		prev_I = I[k];
         	prev_Q = Q[k];

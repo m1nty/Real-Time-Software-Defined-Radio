@@ -1,4 +1,4 @@
-
+ 
 #
 # Comp Eng 3DY4 (Computer Systems Integration Project)
 #
@@ -143,6 +143,9 @@ if __name__ == "__main__":
 
         # FM demodulator
         fm_demod, state_phase = fmDemodArctan(i_ds, q_ds, state_phase)
+        #if block_count == 0:
+        #    for i in range(100):
+        #        print(fm_demod[i])
 
         # ****************************************************************** 
         # -----------------------RDS Data Processing------------------------ 
@@ -151,9 +154,10 @@ if __name__ == "__main__":
         # ------------------------Extraction--------------------------------
         # Performs convoloution to extract the data
         extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,zi=pre_state_extract)
-        if block_count == 0: 
-            print(extract_rds)
 
+        if block_count == 0:
+            for i in range(100):
+                print(extract_rds[i])
         # ---------------------Carrier Recovery-----------------------------
         #Squaring Nonolinearity
         #All this means is that we need to point why multiple each element by itself 
@@ -213,7 +217,6 @@ if __name__ == "__main__":
 
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]
-        #print(len(symbols_I)) 
         symbols_Q = rrc_rds_Q[int_offset::24]
         #block processing the offset for the next block 
         int_offset = 24 - np.where(rrc_rds[len(rrc_rds)-24::] == symbols_I[-1])[0][0] 
@@ -308,7 +311,6 @@ if __name__ == "__main__":
                         potential_syndrome[i] = (potential_syndrome[i] and not mult) or (not potential_syndrome[i] and mult)
             #convert to int
             potential_syndrome = potential_syndrome.astype(int)
-            print(potential_syndrome)
             #Checks if syndrome A
             if ((potential_syndrome).tolist() == [1,1,1,1,0,1,1,0,0,0]):
                 if(last_position == -1 or printposition-last_position == 26): 
@@ -345,7 +347,7 @@ if __name__ == "__main__":
             printposition += 1 
         #Creates list of bits not used 
         prev_sync_bits = diff_bits[position-1::]
-        #print(len(prev_sync_bits))
+        #print("Length of prev bits ",len(prev_sync_bits))
 
         #Iterates through the blocks 
         block_count += 1
