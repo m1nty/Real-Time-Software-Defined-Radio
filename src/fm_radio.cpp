@@ -46,7 +46,7 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 	//define nessisary vectors
 	std::vector<float> iq_data, i_data, q_data,iq_filter_coeff,i_inital, q_inital;
 	std::vector<float> i_filter, q_filter, i_down, q_down;
-	std::vector<float> prev_phase,demod_data; 
+	std::vector<float> prev_phase; 
 
 	//Stuff for pointer implementation
 	static float queue_block[QUEUE_BLOCKS][BLOCK_SIZE];
@@ -82,7 +82,7 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		unsigned int queue_entry = block_id % QUEUE_BLOCKS;
 		//Demoadulate data
 		float * pointer_block = &queue_block[queue_entry][0];
-		fmDemodArctan(i_filter, q_filter, prev_phase, demod_data, pointer_block);
+		fmDemodArctan(i_filter, q_filter, prev_phase, pointer_block);
 		
 		std::unique_lock<std::mutex> queue_lock(radio_mutex);
 		//Probs not right but issa attempt
@@ -187,7 +187,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	//Sets up nessisary vectors 
 	std::vector<float> mono_coeff,audio_inital,audio_block, audio_filter;
 	std::vector<float> stereo_coeff,recovery_initial,stereo_initial,extraction_initial, recovery_coeff, extraction_coeff;
-	std::vector<float> stereo_lr, stereo_filt, stereo_data, bpf_recovery, recovery_pll, bpf_extraction, mixed,demod_data;
+	std::vector<float> stereo_lr, stereo_filt, stereo_data, bpf_recovery, recovery_pll, bpf_extraction, mixed;
 
 	std::vector<short int> audio_data;
 	
@@ -197,7 +197,6 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	recovery_initial.resize(audio_taps-1,0.0);
 	stereo_initial.resize(audio_taps-1,0.0);
 	extraction_initial.resize(audio_taps-1,0.0);
-	demod_data.resize(block_size/20);
 
 	mixed.resize(block_size/20,0.0);
 	// std::cerr << "audio_Fs = " << audio_Fs << std::endl;

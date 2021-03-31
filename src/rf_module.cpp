@@ -9,13 +9,10 @@ Implementing fmSupportLib.py refactored in C++
 #include "dy4.h"
 #include "genfunc.h"
 
-void fmDemodArctan(const std::vector<float> &I, const std::vector<float> &Q,std::vector<float> &prev_phase, std::vector<float> &fm_demod, float* &queue_block) {
+void fmDemodArctan(const std::vector<float> &I, const std::vector<float> &Q,std::vector<float> &prev_phase, float* &queue_block) {
 	prev_phase = {0.0, 0.0};
 	float prev_I = prev_phase[0];
 	float prev_Q = prev_phase[1];
-
-	fm_demod.clear();
-	fm_demod.resize(I.size(),0.0);
 
 	for(unsigned int k = 0 ; k<I.size() ; k++)
 	{
