@@ -35,8 +35,8 @@ audio_decim = 5
 
 #Parameters for RDS
 #For the first BPF
-inital_RDS_lower_freq = 54000
-inital_RDS_higher_freq = 60000
+initial_RDS_lower_freq = 54000
+initial_RDS_higher_freq = 60000
 #Second BPF
 squared_lower_freq = 113500
 squared_higher_freq = 114500
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     # ******************************************************************
     
     #Coefficents for extracting RDS data 
-    extract_RDS_coeff = signal.firwin(rf_taps, [inital_RDS_lower_freq/(audio_Fs/2), inital_RDS_higher_freq/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
+    extract_RDS_coeff = signal.firwin(rf_taps, [initial_RDS_lower_freq/(audio_Fs/2), initial_RDS_higher_freq/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
     pre_state_extract = np.zeros(rf_taps-1) 
     #BPF coefficents after squaring non-linearity
     square_coeff = signal.firwin(rf_taps, [squared_lower_freq/(audio_Fs/2), squared_higher_freq/(audio_Fs/2)], window=('hann'), pass_zero="bandpass")
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     rrc_state = np.zeros(rrc_taps -1) 
     rrc_state_Q = np.zeros(rrc_taps -1) 
     #Values for clock recoverey
-    inital_offset = 0
+    initial_offset = 0
     final_symb = 0 
     #differential decoding
     lonely_bit = 0 
@@ -209,7 +209,7 @@ if __name__ == "__main__":
         #        int_offset = 0;
         #    else: 
         #        int_offset = 12;
-            print("Inital offset for clock recovery ", int_offset)
+            print("Initial offset for clock recovery ", int_offset)
 
         #Go to every 24th sample 
         symbols_I = rrc_rds[int_offset::24]

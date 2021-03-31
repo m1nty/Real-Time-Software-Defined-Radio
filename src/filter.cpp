@@ -98,7 +98,7 @@ void convolveFIR(std::vector<float> &y, const std::vector<float> &x, const std::
 	// bring your own functionality
 	// allocate memory for the output (filtered) data
 	y.resize(x.size()+h.size()-1, 0.0);
-        //Set up an array to look at inital values. For single input its just zeros 
+        //Set up an array to look at initial values. For single input its just zeros 
         //Count variable used to keep track of values 
         int count;
         for (auto n = 0; n < y.size(); n++){

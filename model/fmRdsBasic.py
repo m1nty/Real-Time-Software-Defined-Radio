@@ -94,15 +94,15 @@ if __name__ == "__main__":
     # *****************************************************************
 
     # ------------------------Extraction--------------------------------
-    #BPF filter to extract inital data
+    #BPF filter to extract initial data
     #Use lfilter from scipy 
-    inital_RDS_lower_freq = 54000
-    inital_RDS_higher_freq = 60000
+    initial_RDS_lower_freq = 54000
+    initial_RDS_higher_freq = 60000
     # Intermidiate frequency sample rate 
     if_Fs = 240000
 
     # Creates BPF filter coefficents
-    extract_RDS_coeff = signal.firwin(rf_taps, [inital_RDS_lower_freq/(if_Fs/2), inital_RDS_higher_freq/(if_Fs/2)], window=('hann'), pass_zero="bandpass")
+    extract_RDS_coeff = signal.firwin(rf_taps, [initial_RDS_lower_freq/(if_Fs/2), initial_RDS_higher_freq/(if_Fs/2)], window=('hann'), pass_zero="bandpass")
 
     # Performs convoloution to extract the data
     extract_rds = signal.lfilter(extract_RDS_coeff,1.0,fm_demod)

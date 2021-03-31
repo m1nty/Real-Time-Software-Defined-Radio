@@ -44,16 +44,16 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 	unsigned int block_id = 0;
 	unsigned int block_size = BLOCK_SIZE;
 	//define nessisary vectors
-	std::vector<float> iq_data, i_data, q_data,iq_filter_coeff,i_inital, q_inital;
+	std::vector<float> iq_data, i_data, q_data,iq_filter_coeff,i_initial, q_initial;
 	std::vector<float> i_filter, q_filter, i_down, q_down;
 	std::vector<float> prev_phase; 
 
 	//Stuff for pointer implementation
 	static float queue_block[QUEUE_BLOCKS][BLOCK_SIZE];
-	//Resize inital states used in convoloution
+	//Resize initial states used in convoloution
 	prev_phase.resize(2,0.0);
-	i_inital.resize(rf_taps-1,0.0);
-	q_inital.resize(rf_taps-1,0.0);
+	i_initial.resize(rf_taps-1,0.0);
+	q_initial.resize(rf_taps-1,0.0);
 	
 	//Resizes blocks
 	iq_data.resize(block_size);
@@ -76,8 +76,8 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		impulseResponseLPF(rf_Fs, rf_Fc, rf_taps, iq_filter_coeff);
 
 		//Filtering 
-		convolveWithDecimIQ(i_filter, i_data, iq_filter_coeff, i_inital,q_filter, q_data, q_inital, rf_decim);
-		//convolveWithDecim(q_filter, q_data, iq_filter_coeff, q_inital, rf_decim);
+		convolveWithDecimIQ(i_filter, i_data, iq_filter_coeff, i_initial,q_filter, q_data, q_initial, rf_decim);
+		//convolveWithDecim(q_filter, q_data, iq_filter_coeff, q_initial, rf_decim);
 
 		unsigned int queue_entry = block_id % QUEUE_BLOCKS;
 		//Demoadulate data
@@ -184,14 +184,14 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	}
 
 	//Sets up nessisary vectors 
-	std::vector<float> mono_coeff,audio_inital,audio_block, audio_filter;
+	std::vector<float> mono_coeff,audio_initial,audio_block, audio_filter;
 	std::vector<float> stereo_coeff,recovery_initial,stereo_initial,extraction_initial, recovery_coeff, extraction_coeff;
 	std::vector<float> stereo_lr, stereo_filt, stereo_data, bpf_recovery, recovery_pll, bpf_extraction, mixed;
 
 	std::vector<short int> audio_data;
 	
-	//Sets some inital values
-	audio_inital.resize(audio_taps-1,0.0);
+	//Sets some initial values
+	audio_initial.resize(audio_taps-1,0.0);
 
 	recovery_initial.resize(audio_taps-1,0.0);
 	stereo_initial.resize(audio_taps-1,0.0);
@@ -230,7 +230,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		//Mode 1, with Upsample/Pulls
 		if(mode == 1)
 		{
-			convolveWithDecimMode1Pointer(audio_block, ptr_block, block_size/20, mono_coeff, audio_inital, audio_decim, audio_up);
+			convolveWithDecimMode1Pointer(audio_block, ptr_block, block_size/20, mono_coeff, audio_initial, audio_decim, audio_up);
 			mult = 24;
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
@@ -260,7 +260,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		else
 		{
 			//Gets mono Data
-			convolveWithDecimPointer(audio_block, ptr_block,BLOCK_SIZE/20, mono_coeff, audio_inital, audio_decim);
+			convolveWithDecimPointer(audio_block, ptr_block,BLOCK_SIZE/20, mono_coeff, audio_initial, audio_decim);
 
 			//-----------------------STEREO CARRIER RECOVERY-------------------------------
 			convolveWithDecimPointer(bpf_recovery, ptr_block,BLOCK_SIZE/20, recovery_coeff, recovery_initial, 1);
@@ -335,8 +335,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		int num_taps = 151; 
 		unsigned int block_id = 0;
 		//For first BPF
-		float inital_RDS_lower_freq = 54000;
-		float inital_RDS_higher_freq = 60000;
+		float initial_RDS_lower_freq = 54000;
+		float initial_RDS_higher_freq = 60000;
 		float Fs = 240000;
 		//For second BPF
 		float squared_lower_freq = 113500;
@@ -361,7 +361,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		float rrc_Fs = 57000; 
 		unsigned int rrc_taps = 151;
 		//Values for clock recovery
-		unsigned int inital_offset = 0; 
+		unsigned int initial_offset = 0; 
 		int final_symb = 0; 
 		//Differential decoding 
 		int count_0_pos =0;
@@ -385,14 +385,14 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
 		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
 
-		//Define inital states
+		//Define initial states
 		pre_state_extract.resize(num_taps-1); 
 		square_state.resize(num_taps-1);
 		lpf_3k_state.resize(num_taps-1);
 		anti_img_state.resize(num_taps*19-1); 
 		rrc_state.resize(num_taps-1);
 		//Get coeeficents
-		impulseResponseBPF(inital_RDS_lower_freq, inital_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
+		impulseResponseBPF(initial_RDS_lower_freq, initial_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
 		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
 		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
 		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
@@ -520,23 +520,23 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			convolveWithDecim(rrc_rds_Q, resample_rds_Q, rrc_coeff, rrc_state_Q, 1);
 
 			//Clock and data recovery
-			//Determines where to initally sample 
+			//Determines where to initially sample 
 			if(block_id == 0)
 			{
 				//if(std::abs(rrc_rds[0]) < std::abs(rrc_rds[12]) || std::abs(rrc_rds[24]) < std::abs(rrc_rds[12]))
-				//	inital_offset = 12;
+				//	initial_offset = 12;
 				//else
-				//	inital_offset =0 ;
+				//	initial_offset =0 ;
 				float placehold = 0;
 				for(unsigned int i = 0; i < 24;i++)
 				{
 					if(std::abs(rrc_rds[i]) > placehold)
 					{
 						placehold = std::abs(rrc_rds[i]); 
-						inital_offset = i; 
+						initial_offset = i; 
 					}
 				}
-				std::cerr << "inital offset for clock recovery = " << inital_offset <<std::endl; 
+				std::cerr << "initial offset for clock recovery = " << initial_offset <<std::endl; 
 			}
 			std::vector<float> symbols_I,symbols_Q;
 			symbols_I.resize(std::floor((rrc_rds.size())/24));
@@ -544,8 +544,8 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Gets the symbols from the rrc array 
 			for(unsigned int k=0; k < symbols_I.size();k++)
 			{
-				symbols_I[k] = rrc_rds[24*k+inital_offset];
-				symbols_Q[k] = rrc_rds_Q[24*k+inital_offset];
+				symbols_I[k] = rrc_rds[24*k+initial_offset];
+				symbols_Q[k] = rrc_rds_Q[24*k+initial_offset];
 				//std::cerr << symbols_I[k] <<std::endl;
 			}
 
@@ -553,7 +553,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			for(unsigned int j = 0; j < 24; j++)
 			{
 				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[-1])
-					inital_offset = 24-j; 
+					initial_offset = 24-j; 
 			}
 
 			//Plotting
@@ -568,7 +568,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			}
 			
 			// ---------------------RDS Data Processing----------------------------
-			//Inital screening 
+			//initial screening 
 			if(block_id == 0)
 			{
 				//Loops through small chunck of symbols vector 
@@ -618,7 +618,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
 
 			//Differential decoding
-			//Set inital pre bit and offset
+			//Set initial pre bit and offset
 			if(block_id == 0)
 			{
 				prebit = bit_stream[0];
@@ -654,7 +654,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				{
 					block[y] = diff_bits[y+position];
 				}
-				//Matric multiplication 
+				//Matrix multiplication 
 				std::fill(potential_syndrome.begin(), potential_syndrome.end(), 0);
 				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
 				{
