@@ -155,9 +155,6 @@ if __name__ == "__main__":
         # Performs convoloution to extract the data
         extract_rds, pre_state_extract = signal.lfilter(extract_RDS_coeff,1.0,fm_demod,zi=pre_state_extract)
 
-        if block_count == 0:
-            for i in range(100):
-                print(extract_rds[i])
         # ---------------------Carrier Recovery-----------------------------
         #Squaring Nonolinearity
         #All this means is that we need to point why multiple each element by itself 

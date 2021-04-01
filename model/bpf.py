@@ -1,5 +1,7 @@
 import math
 
+#Tester function to makes sure that the BPF works as intened. 
+#Made in order to help refactor it in C++
 def bpf(fb, fe, fs, n_taps):
     n_center = ((fe + fb)/2)/(fs/2)
     n_pass = ((fe - fb))/(fs/2)

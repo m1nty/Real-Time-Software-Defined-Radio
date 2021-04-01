@@ -31,12 +31,10 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 	if(mode == 1) rf_Fs = 2500000;
 	else rf_Fs = 2400000;
 
-	
 	//These variables are the same no matter what
 	int rf_Fc = 100000;
 	int rf_taps = 151;
 	int rf_decim = 10;
-	int audio_decim = 5; 
 	unsigned int block_id = 0;
 	unsigned int block_size = BLOCK_SIZE;
 	//define nessisary vectors
@@ -153,6 +151,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	unsigned int block_id = 0;
 	int audio_up = 1;
 
+	//For Pll block processing
 	pll_state_type pll_state;
 	pll_state.integrator = 0.0;
 	pll_state.phaseEst = 0.0;
@@ -170,11 +169,10 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 		audio_taps = audio_taps*audio_up; 
 	}
 
-	//Sets up nessisary vectors 
+	//Sets up vectors 
 	std::vector<float> mono_coeff,audio_initial,audio_block, audio_filter;
 	std::vector<float> stereo_coeff,recovery_initial,stereo_initial,extraction_initial, recovery_coeff, extraction_coeff;
 	std::vector<float> stereo_lr, stereo_filt, stereo_data, bpf_recovery, recovery_pll, bpf_extraction, mixed;
-
 	std::vector<short int> audio_data;
 	
 	//Sets some initial values
@@ -436,32 +434,41 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 {
 	if(mode == 0)
 	{
+		//Block id
+		int block_id = 0;
+		//Stuff for clock sync 
 		unsigned int initial_offset = 0; 
-		//Differential decoding 
+		//variables for manchester decoding
 		int count_0_pos =0;
 		int count_1_pos = 0;
 		unsigned int start_pos = 0;
+		//Some block processing values 
 		float lonely_bit = 0;
 		int front_bit = 0; 
+		//Values for differential decoding
 		int prebit = 0; 
 		unsigned int offset = 0;
+		//Vecotrs needed for these processes 
+		std::vector<float> rrc_rds;
 		std::vector<int> bit_stream; 
 		std::vector<int> diff_bits; 
 		std::vector<float> symbols_I;
-		int block_id = 0;
-		unsigned int position = 0;
-		unsigned int printposition = 0; 
-		int last_position = -1;
 		std::vector<int> potential_syndrome,block,prev_sync_bits;
 		potential_syndrome.resize(10);
 		block.resize(26);
 		prev_sync_bits.resize(27);
+		//Poistion variables for frame sync
+		unsigned int position = 0;
+		unsigned int printposition = 0; 
+		int last_position = -1;
+		//The parity matrix
 		std::vector<std::vector<int>> H {{1,0,0,0,0,0,0,0,0,0},{0,1,0,0,0,0,0,0,0,0},{0,0,1,0,0,0,0,0,0,0},{0,0,0,1,0,0,0,0,0,0},{0,0,0,0,1,0,0,0,0,0},{0,0,0,0,0,1,0,0,0,0},{0,0,0,0,0,0,1,0,0,0},{0,0,0,0,0,0,0,1,0,0},{0,0,0,0,0,0,0,0,1,0},{0,0,0,0,0,0,0,0,0,1},{1,0,1,1,0,1,1,1,0,0},{0,1,0,1,1,0,1,1,1,0},{0,0,1,0,1,1,0,1,1,1},{1,0,1,0,0,0,0,1,1,1},{1,1,1,0,0,1,1,1,1,1},{1,1,0,0,0,1,0,0,1,1},{1,1,0,1,0,1,0,1,0,1},{1,1,0,1,1,1,0,1,1,0},{0,1,1,0,1,1,1,0,1,1},{1,0,0,0,0,0,0,0,0,1},{1,1,1,1,0,1,1,1,0,0}, {0,1,1,1,1,0,1,1,1,0},{0,0,1,1,1,1,0,1,1,1},{1,0,1,0,1,0,0,1,1,1},{1,1,1,0,0,0,1,1,1,1}, {1,1,0,0,0,1,1,0,1,1}};
+		//Defining the syndromes
 		std::vector<int> syndrome_A {1,1,1,1,0,1,1,0,0,0};
 		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
 		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
 		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
-		std::vector<float> rrc_rds;
+		//Loop in which all of the processes take place 
 		while(true) 
 		{
 			//Check for reading in from the queue 
@@ -566,9 +573,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 				bit_stream.insert(bit_stream.begin(), front_bit);
 				//Set last unused symbol to the value of lonely bit 
 				lonely_bit = symbols_I[symbols_I.size()-1]; 
-				//std::cerr << bit_stream.size()  << std::endl;
 			}
-			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
 
 			//Differential decoding
 			//Set initial pre bit and offset
@@ -591,7 +596,9 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 				//Set current bit to the bit that will be used in the next loop iteration
 				prebit = bit_stream[t+offset];
 			}
+			//Just in case set last bit to the prebit for the next block 
 			prebit = bit_stream[bit_stream.size()-1];
+
 			//Prints block Number
 			std::cerr << " " << std::endl;
 			std::cerr << "****************Prcoessing Block: " << block_id<< "****************" << std::endl;
@@ -602,7 +609,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			if(block_id != 0){
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
-			//std::cerr << "diff_bits size " << diff_bits.size()<<std::endl;
+			
 			//Sets inital postion
 			position = 0;
 			while(true){
@@ -617,7 +624,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 				{
 					for(unsigned int j = 0 ; j<26 ; j++)
 					{
-						//potential_syndrome[i] = (potential_syndrome[i] && !(block[j] && H[j][i])) || (!potential_syndrome[i] && (block[j] && H[j][i]));
+						//XOR instead of add, AND instad of multiply
 						potential_syndrome[i] = potential_syndrome[i] ^ (block[j] && H[j][i]);
 					}
 				}
@@ -691,8 +698,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 	}
 }
 
-
-//Need to get args working
+//Main function which also takes arguments to determine the mode in which the radio will operate in
 int main(int argc, char* argv[])
 {
 	//This is for mode 1 and 0

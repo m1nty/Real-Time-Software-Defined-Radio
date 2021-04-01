@@ -9,6 +9,7 @@ Implementing fmSupportLib.py refactored in C++
 #include "dy4.h"
 #include "genfunc.h"
 
+//Fast demodulation function which does not use arctan in order to increase speed 
 void fmDemodArctan(const std::vector<float> &I, const std::vector<float> &Q,std::vector<float> &prev_phase, float* &queue_block) {
 //Function to perform demodulation on the IQ samples 
 	prev_phase = {0.0, 0.0};

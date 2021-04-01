@@ -9,6 +9,7 @@ Ontario, Canada
 #include "iofunc.h"
 #include "helper.h"
 
+//Standard PLL function refactored from Python
 void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state_type &pll_state){
     
     float Cp = 2.666;
@@ -54,6 +55,7 @@ void fmPLL(std::vector<float> &ncoOut, std::vector<float> &pllIn, float freq, fl
     //ncOut Resize
     ncoOut = std::vector<float>(ncoOut.begin(), ncoOut.end()-1);
 }
+//Pll function which also output the Quadrature data in order to help plot constaltions when testing RDS. This plotting has been removed from the code to make it cleaner	
 void fmPLLIQ(std::vector<float> &ncoOut,std::vector<float> &ncoOutQ, std::vector<float> &pllIn, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state_type &pll_state){
     
     float Cp = 2.666;
@@ -102,7 +104,7 @@ void fmPLLIQ(std::vector<float> &ncoOut,std::vector<float> &ncoOutQ, std::vector
     //ncOut Resize
     ncoOut = std::vector<float>(ncoOut.begin(), ncoOut.end()-1);
 }
-//MEGA function 
+//Combine the squaring, filtiering and PLL all in to one function in order to add more speed to the system 
 void pllCombine(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num,std::vector<float> &ncoOut, float freq, float Fs, float ncoScale, float phaseAdjust, float normBandwidth , pll_state_type &pll_state)
 {
 	float Cp = 2.666;
@@ -143,6 +145,7 @@ void pllCombine(std::vector<float> &y, const std::vector<float> &x, const std::v
 				count += 1;
 			}
                 }
+		//Once y[n] has been cclaculated we can find the corresponding PLL value
 		float errorI = y[n] * (+feedbackI);
 		float errorQ = y[n] * (-feedbackQ);
 		float errorD = atan2(errorQ, errorI);  //Phase Error Detector
@@ -160,6 +163,7 @@ void pllCombine(std::vector<float> &y, const std::vector<float> &x, const std::v
 		zi[i] = pow(x[x.size()-zi.size()-1+i],2); 
 	}
     	//PLL State Type Edits  
+	//Set PLL states to corresponding values so they can be used in the next blcok 
     	pll_state.integrator = integrator;
    	pll_state.phaseEst = phaseEst;
     	pll_state.feedbackI = feedbackI;
