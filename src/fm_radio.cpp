@@ -22,6 +22,11 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #define QUEUE_BLOCKS 5 
 #define BLOCK_SIZE 307200 
 
+//CURRENT ISSUES WHEN SUBMITTING 
+//RDS keeps dropping block. We think it is due to the clock recovery in block processing, but we were never able to fully figure it out. It just seems like block drop off the face of the earth
+//RDS is not fully optimized due to time. Because of this, the audio is choppy because it does not fill up its queue fast enough and everyone lags behind. To hear just stero and audio please look at the document
+//Which shows the previous commit where this is availible
+
 //Rf thread where IQ samples read in from rf dongle. This is where they are filtered and demodulated 
 void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex,std::mutex &rds_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
 {
@@ -106,14 +111,11 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		else
 		{
 			std::unique_lock<std::mutex> queue1_lock(rds_mutex);
-			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) 
-			{
 				//std::cerr << "Issue so need to lock" << std::endl;
-				if(sync_queue.size() == QUEUE_BLOCKS-1)
-					cvar.wait(queue_lock);
-				if(rds_queue.size() == QUEUE_BLOCKS-1)
-					cvar1.wait(queue1_lock);
-			}
+			if(sync_queue.size() == QUEUE_BLOCKS-1)
+				cvar.wait(queue_lock);
+			if(rds_queue.size() == QUEUE_BLOCKS-1)
+				cvar1.wait(queue1_lock);
 			//push pointers to address onto queue 
 			sync_queue.push((void *)&queue_block[queue_entry][0]);
 			rds_queue.push((void *)&queue_block[queue_entry][0]);
@@ -127,8 +129,11 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 			
 			//Unlock and notify 
 			queue_lock.unlock();
+			queue1_lock.unlock();
 			cvar.notify_one();
 			cvar1.notify_one();
+
+			//Ends when there is nothing left at the standard in
 			if((std::cin.rdstate()) != 0)
 			{
 				break;
@@ -470,6 +475,8 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
 		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
 		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
+		//
+		int bad_sync_count = 0;
 		//Loop in which all of the processes take place 
 		while(true) 
 		{
@@ -640,9 +647,11 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 						last_position = printposition;
 						std::cerr << "Syndrome A at position " << printposition << std::endl;
 						last_position = printposition;
+						bad_sync_count = 0;
 					}
 					else{
 						std::cerr << "False positive Syndrome A at position " << printposition << std::endl;
+						bad_sync_count++;
 					}
 				}
 				//Checks if syndrome B
@@ -650,9 +659,11 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 					if(last_position == -1 || printposition-last_position == 26){ 
 						std::cerr << "Syndrome B at position " << printposition << std::endl;
 						last_position = printposition;
+						bad_sync_count = 0;
 					}
 					else{
 						std::cerr << "False positive Syndrome B at position " << printposition << std::endl;
+						bad_sync_count++;
 					}
 				}
 				//Checks if syndrome C
@@ -660,9 +671,11 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 					if(last_position == -1 || printposition-last_position == 26){ 
 						std::cerr << "Syndrome C at position " << printposition << std::endl;
 						last_position = printposition;
+						bad_sync_count = 0;
 					}
 					else{
 						std::cerr << "False positive Syndrome C at position " << printposition << std::endl;
+						bad_sync_count++;
 					}
 				}
 				//Checks if syndrome D
@@ -670,11 +683,18 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 					if(last_position == -1 || printposition-last_position == 26){ 
 						std::cerr << "Syndrome D at position " << printposition << std::endl;
 						last_position = printposition;
+						bad_sync_count = 0;
 					}
 					else{
 						std::cerr << "False positive Syndrome D at position " << printposition << std::endl;
+						bad_sync_count++;
 					}
 				}
+				//Check if resync needed 
+				//Will then start counting syndromes again once this is reset. 
+				if(bad_sync_count>10)
+					last_position = -1;
+
 				//Breaks once it reaches the end
 				//Iterate the posiition variabel
 				position += 1;
