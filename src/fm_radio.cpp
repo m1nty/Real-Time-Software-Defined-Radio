@@ -458,7 +458,6 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue,std::queu
 			//Runs until both queues are empty and there is nothing at the standard in 
 			if((std::cin.rdstate()) != 0 && frame_queue.empty()&&rds_queue.empty())
 			{
-				std::cerr<< "Does frame terminate" << std::endl;
 				break;
 			}
 		}
@@ -474,7 +473,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		//Other vectors
 		std::vector<float> extract_rds,extract_rds_squared,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
 		//Defining constants
-		int num_taps = 151; 
+		int num_taps = 51; 
 		unsigned int block_id = 0;
 		//For first BPF
 		float initial_RDS_lower_freq = 54000;
