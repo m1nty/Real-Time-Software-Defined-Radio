@@ -297,47 +297,7 @@ void convolveWithDecimMode1Pointer(std::vector<float> &y,float* &x, const unsign
 	}
 }
 
-//void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample)
-//{
-//	//Creates vector for down sampled data
-//	y.resize(x.size()*up_sample/decim_num);
-//	//Loops through vlaues to do convoloution
-//        int count;
-//	//Iterator for the impulse response 
-//	int iter;
-//        for (auto n = 0; n < y.size(); n++)
-//	{
-//		//Reset the values
-//                count = 0;
-//		iter = 1;
-//                for (auto k = 0; k < h.size(); k= k+iter)
-//		{
-//			//Once you reach a non-zero start iterating 24 
-//			if(decim_num*n-k == 0 || (decim_num*n-k) %up_sample == 0) iter = up_sample; 
-//			else continue;
-//			
-//			//
-//			if((decim_num*n-k >= 0) && (decim_num*n-k < x.size()*up_sample))
-//			{
-//                                y[n] += x[(decim_num*n-k) /up_sample]*h[k];
-//			}
-//			//Previous state data
-//			else
-//			{
-//				y[n] += zi[(zi.size()-1-count)/up_sample]*h[k];
-//			}
-//
-//			count += 1;
-//                }
-//		y[n] = y[n]*up_sample;
-//        }
-//	//Assigns next zi value 
-//	for(auto i = 0; i < zi.size(); i++){
-//		zi[i] = x[x.size()-zi.size()-1+i]; 
-//	}
-//}
-//RRC and rational resampler
-void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h,const std::vector<float> &h1, std::vector<float> &zi, const int &decim_num, const int &up_sample)
+void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample)
 {
 	//Creates vector for down sampled data
 	y.resize(x.size()*up_sample/decim_num);
@@ -359,12 +319,12 @@ void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &
 			//
 			if((decim_num*n-k >= 0) && (decim_num*n-k < x.size()*up_sample))
 			{
-                                y[n] += x[(decim_num*n-k) /up_sample]*h[k]*h1[k];
+                                y[n] += x[(decim_num*n-k) /up_sample]*h[k];
 			}
 			//Previous state data
 			else
 			{
-				y[n] += zi[(zi.size()-1-count)/up_sample]*h[k]*h1[k];
+				y[n] += zi[(zi.size()-1-count)/up_sample]*h[k];
 			}
 
 			count += 1;
