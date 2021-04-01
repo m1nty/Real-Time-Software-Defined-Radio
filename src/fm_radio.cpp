@@ -23,7 +23,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #define BLOCK_SIZE 307200 
 
 //Rf thread where IQ samples read in from rf dongle. This is where they are filtered and demodulated 
-void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
+void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex,std::mutex &rds_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
 {
 	//Need to set up conditional for this 
 	int rf_Fs;
@@ -105,13 +105,14 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		}
 		else
 		{
+			std::unique_lock<std::mutex> queue1_lock(rds_mutex);
 			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) 
 			{
 				//std::cerr << "Issue so need to lock" << std::endl;
 				if(sync_queue.size() == QUEUE_BLOCKS-1)
 					cvar.wait(queue_lock);
 				if(rds_queue.size() == QUEUE_BLOCKS-1)
-					cvar1.wait(queue_lock);
+					cvar1.wait(queue1_lock);
 			}
 			//push pointers to address onto queue 
 			sync_queue.push((void *)&queue_block[queue_entry][0]);
@@ -308,7 +309,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 }
 
 //Inital RDS Thread which does all of the filtering
-void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
+void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &rds_mutex, std::condition_variable &cvar, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
 {
 	//Will only perform these process if in mode 0 
 	if(mode == 0)
@@ -363,7 +364,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		while(true)
 		{
 			//Creates lock
-			std::unique_lock<std::mutex> queue_lock(radio_mutex);
+			std::unique_lock<std::mutex> queue_lock(rds_mutex);
 			//Waits until there is something in the queue
 			if(rds_queue.empty())
 			{
@@ -424,7 +425,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Will keep iterating the block till there is nothing coming in from standard in 
 			if((std::cin.rdstate()) != 0&&rds_queue.empty())
 			{
-				std::cerr<< "Does RDS terminate" << std::endl;
 				break;
 			}
 		}
@@ -741,7 +741,7 @@ int main(int argc, char* argv[])
 	//Define stuff for threads
 	std::queue<void *> sync_queue;
 	std::queue<void *> rds_queue;
-	std::mutex radio_mutex;
+	std::mutex radio_mutex,rds_mutex;
 	std::condition_variable cvar,cvar1,cvarframe; 
 
 	//THIS IS STUFF FOR PLOTTING IN CASE WE NEEDA DO THAT 
@@ -755,9 +755,9 @@ int main(int argc, char* argv[])
 	std::mutex frame_mutex;
 	
 	//Creates threads
-	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar),std::ref(cvar1));
+	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex),std::ref(rds_mutex), std::ref(cvar),std::ref(cvar1));
 	std::thread mono_stero = std::thread(mono_stero_thread, std::ref(mode), std::ref(sync_queue), std::ref(radio_mutex), std::ref(cvar));
-	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar1),std::ref(frame_queue), std::ref(frame_mutex), std::ref(cvarframe));
+	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(rds_mutex), std::ref(cvar1),std::ref(frame_queue), std::ref(frame_mutex), std::ref(cvarframe));
 	std::thread frame= std::thread(frame_thread, std::ref(mode), std::ref(frame_queue),std::ref(rds_queue), std::ref(frame_mutex), std::ref(cvarframe));
 
 	//Once all standard in blocks have been read, threads are joined
