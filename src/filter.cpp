@@ -257,7 +257,7 @@ void convolveWithDecimMode1(std::vector<float> &y, const std::vector<float> &x, 
 		zi[i] = x[x.size()-zi.size()-1+i]; 
 	}
 }
-//Pointer mode 1 
+//Concoloution combined with resasmpling . Onlt difference is a Pointer is an argument making threads function faster
 void convolveWithDecimMode1Pointer(std::vector<float> &y,float* &x, const unsigned int block_size, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample)
 {
 	//Creates vector for down sampled data
@@ -297,6 +297,7 @@ void convolveWithDecimMode1Pointer(std::vector<float> &y,float* &x, const unsign
 	}
 }
 
+//Additional little convoloution function added to help improve  speed of RDS
 void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num, const int &up_sample)
 {
 	//Creates vector for down sampled data
@@ -336,6 +337,7 @@ void convolveWithDecimMode1RDS(std::vector<float> &y, const std::vector<float> &
 		zi[i] = x[x.size()-zi.size()-1+i]; 
 	}
 }
+
 //Downsamples and does convoloution at the same time in order to go speedy 
 void convolveWithDecimSquare(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &zi, const int &decim_num)
 {
@@ -367,7 +369,7 @@ void convolveWithDecimSquare(std::vector<float> &y, const std::vector<float> &x,
 	}
 }
 
-//combines mixing and convoloutoo
+//combines mixing and convoloutoin
 void convolveWithDecimAndMixer(std::vector<float> &y, const std::vector<float> &x,const std::vector<float> &x1 , const std::vector<float> &h, std::vector<float> &zi, const int &decim_num)
 {
 	//Creates vector for down sampled data

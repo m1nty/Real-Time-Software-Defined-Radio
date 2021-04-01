@@ -22,12 +22,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #define QUEUE_BLOCKS 5 
 #define BLOCK_SIZE 307200 
 
-//NOTE FOR WHOEVER TESTING
-//To run in mode 0 type: cat ../data/my_samples_953.raw | ./experiment | aplay -c 1 -f S16_LE -r 48000
-//To run in mode 1 type: cat ../data/my_samples_953.raw | ./experiment 1 | aplay -c 1 -f S16_LE -r 48000
-
-//Rf thread
-//TODO Eventuall add these functions to a seperate file so its less ugly
+//Rf thread where IQ samples read in from rf dongle. This is where they are filtered and demodulated 
 void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
 {
 	//Need to set up conditional for this 
@@ -120,15 +115,7 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 				if(rds_queue.size() == QUEUE_BLOCKS-1)
 					cvar1.wait(queue_lock);
 			}
-			//if(sync_queue.size() == QUEUE_BLOCKS-1)
-			//{
-			//	cvar.wait(queue_lock);
-			//}
-			//if(rds_queue.size() == QUEUE_BLOCKS-1)
-			//{
-			//	cvar1.wait(queue_lock);
-			//}
-			//push vector onto queue 
+			//push pointers to address onto queue 
 			sync_queue.push((void *)&queue_block[queue_entry][0]);
 			rds_queue.push((void *)&queue_block[queue_entry][0]);
 
@@ -151,7 +138,7 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 	}
 }
 
-//Thread for mono and stero 
+//Thread for mono and stero. This is where all of the audio data is processed  
 void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
 {
 	//Depending on the mode sets the sampling frequency to the corresponding value
@@ -322,7 +309,129 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	}
 }
 
-//Thread for frame syncronization
+//Inital RDS Thread which does all of the filtering
+void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
+{
+	//Will only perform these process if in mode 0 
+	if(mode == 0)
+	{
+		//Defining the vectors from python
+		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state;
+		//Other vectors
+		std::vector<float> extract_rds,extract_rds_squared,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
+		//Defining constants
+		int num_taps = 151; 
+		unsigned int block_id = 0;
+		//For first BPF
+		float initial_RDS_lower_freq = 54000;
+		float initial_RDS_higher_freq = 60000;
+		float Fs = 240000;
+		//For second BPF
+		float squared_lower_freq = 113500;
+		float squared_higher_freq = 114500;
+		//PLL
+		float freq_centered = 114000;
+		float phase_adj = PI/3.3-PI/1.5;
+		pll_state_type pll_state;
+		pll_state.integrator = 0.0;
+		pll_state.phaseEst = 0.0;
+		pll_state.feedbackI = 1.0;
+		pll_state.feedbackQ = 0.0;
+		pll_state.trigOffset = 0.0;
+		pll_state.ncoLast = 1.0;
+		//LPF 
+		float cutoff_LPF = 3000; 
+		//Rational Resampler
+		int upsample_val = 19;
+		int downsample_val = 80;
+		float cutoff_anti_img = 57000/2;
+		//Values for clock recovery
+		std::vector<float> symbols_I;
+
+		//Define initial states
+		pre_state_extract.resize(num_taps-1); 
+		square_state.resize(num_taps-1);
+		lpf_3k_state.resize(num_taps-1);
+		anti_img_state.resize(num_taps*19-1); 
+		rrc_state.resize(num_taps-1);
+		//Get coeeficents
+		impulseResponseBPF(initial_RDS_lower_freq, initial_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
+		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
+		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
+		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
+		impulseResponseRRC(57000, num_taps, rrc_coeff);
+	
+		//Loop to calculate all of it 
+		while(true)
+		{
+			//Creates lock
+			std::unique_lock<std::mutex> queue_lock(radio_mutex);
+			//Waits until there is something in the queue
+			if(rds_queue.empty())
+			{
+				cvar.wait(queue_lock);
+			}
+			//Assigns front of quene to vector
+			float *ptr_block = (float *)rds_queue.front();
+			//Pops the value of the queue 
+			rds_queue.pop();
+			queue_lock.unlock();
+			cvar.notify_one();
+
+			// ****************************************************************** 
+			// -----------------------RDS Data Processing------------------------ 
+			// ******************************************************************
+				
+			// ------------------------Extraction--------------------------------
+			// Performs convoloution to extract the data 
+			convolveWithDecimPointer(extract_rds, ptr_block,BLOCK_SIZE/20, extract_RDS_coeff, pre_state_extract, 1.0);
+
+			// ---------------------Carrier Recovery-----------------------------
+			//Combined the squaring, BPF and Pll for a bit of a time save 
+			pllCombine(pre_Pll_rds, extract_rds, square_coeff,square_state, 1,post_Pll, freq_centered, 240000, 0.5,phase_adj-PI/1.4 , 0.001 , pll_state);
+			
+			// ---------------------Demodulation-mixed----------------------------
+			//Low pass filter combined with mixer
+			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
+
+			//Resampler
+			convolveWithDecimMode1RDS(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
+			
+			//RRC Filter
+			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
+
+			//Push to thread which dedicated to frame sync
+			std::unique_lock<std::mutex> frame_lock(frame_mutex);
+			if(frame_queue.size() == QUEUE_BLOCKS-1)
+			{
+				cvarframe.wait(frame_lock);
+			}
+			//Push onto queue 
+			frame_queue.push(rrc_rds);
+			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
+			frame_lock.unlock();
+			cvarframe.notify_one();
+			//Fills these vectors with zeros
+			std::fill(extract_rds.begin(), extract_rds.end(), 0);
+			std::fill(pre_Pll_rds.begin(), pre_Pll_rds.end(), 0);
+			//std::fill(post_Pll.begin(), post_Pll.end(), 0);
+			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
+			std::fill(resample_rds.begin(), resample_rds.end(), 0);
+			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
+			//iterate block id
+			block_id ++;
+
+			//Will keep iterating the block till there is nothing coming in from standard in 
+			if((std::cin.rdstate()) != 0&&rds_queue.empty())
+			{
+				std::cerr<< "Does RDS terminate" << std::endl;
+				break;
+			}
+		}
+	}
+}
+	
+//Thread which does all of the clock recovery, manchester decoding and frame sync
 void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::queue<void *> &rds_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe)
 {
 	if(mode == 0)
@@ -355,8 +464,6 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 		std::vector<float> rrc_rds;
 		while(true) 
 		{
-			//Determines the size of the diff_bits read in 
-
 			//Check for reading in from the queue 
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
 			//Waits until there is something in the queue
@@ -372,6 +479,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			frame_lock.unlock();
 			cvarframe.notify_one();
 
+			//If its the first block find the inital offset of the first 24 bits to find the peak then take every 24th bit 
 			if(block_id == 0)
 			{
 				//finds the index of the max
@@ -390,7 +498,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			//symbols_I.resize(std::floor((rrc_rds.size())/24));
 			symbols_I.resize((int)((rrc_rds.size())/24));
 			
-			//Gets the symbols from the rrc array 
+			//Gets the symbols from the rrc array. Gets every 24th sample from the offset
 			for(unsigned int k=0; k < symbols_I.size();k++)
 			{
 				symbols_I[k] = rrc_rds[24*k+initial_offset];
@@ -404,17 +512,16 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[symbols_I.size()-1])
 				{
 					initial_offset = 24-j; 
-					//std::cerr << "Inital offset for block processing " << initial_offset<<std::endl;
 				}
 			}
 			// ---------------------RDS Data Processing----------------------------
-			//initial screening 
+			//initial screening to determine if we start at bit 0 or 1 when doing manchester decoding
 			if(block_id == 0)
 			{
 				//Loops through small chunck of symbols vector 
 				for(unsigned int j; j < symbols_I.size()/4; j++)
 				{
-					//Checks for doubles 
+					//Checks for doubles. Which ever start point has the least doubles is where will start from 
 					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
 						count_0_pos += 1;
 					else if((symbols_I[2*j+1] > 0 && symbols_I[2*j+2] > 0) || (symbols_I[2*j+1] < 0 && symbols_I[2*j+2]<0))
@@ -425,15 +532,16 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 					start_pos = 1;
 				else if(count_1_pos > count_0_pos) 
 					start_pos = 0;
-				//std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
 			}
 			//Now the recovery 
-			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
 			bit_stream.resize((int)(symbols_I.size()/2)-start_pos,0);
 			
 			//Uses prev bit just in case
+			//In the case that the start position is 1, we need to use the last unused bit from the prev block and the first bit of the current block,
+			//in order to get the bit that will be appended to the front 
 			if(start_pos == 1 && block_id != 0)
 			{
+				//Which ever symbol is bigger will indicate if we go from a high to a low or vice versa 
 				if(lonely_bit > symbols_I[0])
 					front_bit = 1 ;
 				else if(symbols_I[0] > lonely_bit)
@@ -442,8 +550,11 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			//Figures out what every bit is
 			for(unsigned int k =0; k<bit_stream.size(); k++) 
 			{
+				//Break if we exceed the vector bounds
 				if(start_pos+2*k+1 > symbols_I.size()-1)
 					break;
+				//Which ever symbol is bigger will indicate if we go from a high to a low or vice versa 
+				//Then we can set the value of bit stream to the corresponding bit
 				if(symbols_I[2*k+start_pos] > symbols_I[2*k+1+start_pos])
 					bit_stream[k] = 1;
 				else if(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos])
@@ -453,6 +564,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			if(start_pos == 1) 
 			{
 				bit_stream.insert(bit_stream.begin(), front_bit);
+				//Set last unused symbol to the value of lonely bit 
 				lonely_bit = symbols_I[symbols_I.size()-1]; 
 				//std::cerr << bit_stream.size()  << std::endl;
 			}
@@ -462,18 +574,21 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			//Set initial pre bit and offset
 			if(block_id == 0)
 			{
+				//Initall we need to use the first bit of the bit stream for differential decoding
 				prebit = bit_stream[0];
 				offset = 1;
 			}
 			else
 			{
+				//Afterwards just use the last bit from the previous bit	
 				offset = 0; 
 			}
-			//Perform XOR on bits
+			//Perform XOR on bits to perform differential decoding
 			diff_bits.resize(bit_stream.size()-offset,0);
 			for(unsigned int t = 0; t< diff_bits.size(); t++)
 			{
 				diff_bits[t] = prebit ^ bit_stream[t+offset];
+				//Set current bit to the bit that will be used in the next loop iteration
 				prebit = bit_stream[t+offset];
 			}
 			prebit = bit_stream[bit_stream.size()-1];
@@ -483,18 +598,20 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 
 			//Frame Sync
 			//insert remaining bits to front of vector
+			//Insert bits not used to the beginning of this vecotr so no syndromes are lost 
 			if(block_id != 0){
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
 			//std::cerr << "diff_bits size " << diff_bits.size()<<std::endl;
+			//Sets inital postion
 			position = 0;
 			while(true){
-				//Creates a block of size 26
+				//Creates a block of size, and get a new block each cycle shifted by position
 				for(unsigned int y = 0; y < 26; y++)
 				{
 					block[y] = diff_bits[y+position];
 				}
-				//Matrix multiplication 
+				//Matrix multiplication in order to get a vector with 10 elements to check if its a syndrome
 				std::fill(potential_syndrome.begin(), potential_syndrome.end(), 0);
 				for(unsigned int i = 0 ; i<potential_syndrome.size() ; i++)
 				{
@@ -504,9 +621,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 						potential_syndrome[i] = potential_syndrome[i] ^ (block[j] && H[j][i]);
 					}
 				}
-				//convert to int
-				//potential_syndrome = static_cast<short int>(potential_syndrome);
-				//std::cerr << "Potential syndrome " << potential_syndrome[0] <<potential_syndrome[1]<< potential_syndrome[2]<<potential_syndrome[3]<<potential_syndrome[4]<<potential_syndrome[5]<<potential_syndrome[6]<<potential_syndrome[7]<<potential_syndrome[8]<<potential_syndrome[9]<<std::endl;
+				//The following conditionals see if the caclulated value corresponds to a syndrome
 				//Checks if syndrome A
 				if(potential_syndrome == syndrome_A){ 
 					if(last_position == -1 || printposition-last_position == 26){ 
@@ -549,6 +664,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 					}
 				}
 				//Breaks once it reaches the end
+				//Iterate the posiition variabel
 				position += 1;
 				if(position+26 > diff_bits.size()-1)
 				{
@@ -558,12 +674,10 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 				}
 				printposition+=1;
 			}
-			//Creates list of bits not used 
+			//Creates vector  of bits not used to be used in the next block 
 			for(unsigned int g = 0; g < prev_sync_bits.size(); g++)
 			{
-				//std::cerr << g << std::endl;
 				prev_sync_bits[g] = diff_bits[position-1+g];
-				//std::cerr << prev_sync_bits[g];
 			}
 
 			//Iterate the block ID
@@ -576,143 +690,6 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 		}
 	}
 }
-//RDS Thread
-void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
-{
-	if(mode == 0)
-	{
-		//Defining the vectors from python
-		std::vector<float> extract_RDS_coeff, pre_state_extract, square_coeff, square_state, lpf_coeff_rds, lpf_3k_state, anti_img_coeff, anti_img_state, rrc_coeff, rrc_state;
-		//Other vectors
-		std::vector<float> extract_rds,extract_rds_squared,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
-		//Defining constants
-		int num_taps = 151; 
-		unsigned int block_id = 0;
-		//For first BPF
-		float initial_RDS_lower_freq = 54000;
-		float initial_RDS_higher_freq = 60000;
-		float Fs = 240000;
-		//For second BPF
-		float squared_lower_freq = 113500;
-		float squared_higher_freq = 114500;
-		//PLL
-		float freq_centered = 114000;
-		float phase_adj = PI/3.3-PI/1.5;
-		pll_state_type pll_state;
-		pll_state.integrator = 0.0;
-		pll_state.phaseEst = 0.0;
-		pll_state.feedbackI = 1.0;
-		pll_state.feedbackQ = 0.0;
-		pll_state.trigOffset = 0.0;
-		pll_state.ncoLast = 1.0;
-		//LPF 
-		float cutoff_LPF = 3000; 
-		//Rational Resampler
-		int upsample_val = 19;
-		int downsample_val = 80;
-		float cutoff_anti_img = 57000/2;
-		//Values for clock recovery
-		unsigned int initial_offset = 0; 
-		//Differential decoding 
-		int count_0_pos =0;
-		int count_1_pos = 0;
-		unsigned int start_pos = 0;
-		float lonely_bit = 0;
-		int front_bit = 0; 
-		int prebit = 0; 
-		unsigned int offset = 0;
-		std::vector<int> bit_stream; 
-		std::vector<int> diff_bits; 
-		std::vector<float> symbols_I;
-
-		//Define initial states
-		pre_state_extract.resize(num_taps-1); 
-		square_state.resize(num_taps-1);
-		lpf_3k_state.resize(num_taps-1);
-		anti_img_state.resize(num_taps*19-1); 
-		rrc_state.resize(num_taps-1);
-		//Get coeeficents
-		impulseResponseBPF(initial_RDS_lower_freq, initial_RDS_higher_freq, Fs, num_taps,extract_RDS_coeff);
-		impulseResponseBPF(squared_lower_freq, squared_higher_freq, Fs, num_taps, square_coeff);
-		impulseResponseLPF(Fs, cutoff_LPF, num_taps, lpf_coeff_rds);
-		impulseResponseLPF(Fs*19, cutoff_anti_img, num_taps*19, anti_img_coeff);
-		impulseResponseRRC(57000, num_taps, rrc_coeff);
-	
-		//Loop to calculate all of it 
-		while(true)
-		{
-			//Creates lock
-			std::unique_lock<std::mutex> queue_lock(radio_mutex);
-			//Waits until there is something in the queue
-			if(rds_queue.empty())
-			{
-				cvar.wait(queue_lock);
-			}
-			//Assigns front of quene to vector
-			float *ptr_block = (float *)rds_queue.front();
-			//Pops the value of the queue 
-			rds_queue.pop();
-			queue_lock.unlock();
-			cvar.notify_one();
-
-			// ****************************************************************** 
-			// -----------------------RDS Data Processing------------------------ 
-			// ******************************************************************
-				
-			// ------------------------Extraction--------------------------------
-			// Performs convoloution to extract the data 
-			convolveWithDecimPointer(extract_rds, ptr_block,BLOCK_SIZE/20, extract_RDS_coeff, pre_state_extract, 1.0);
-
-			// ---------------------Carrier Recovery-----------------------------
-			//Combined squaring and Second BPF
-			//convolveWithDecimSquare(pre_Pll_rds, extract_rds, square_coeff, square_state, 1);
-			////Pll
-			//fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/1.4, 0.001,pll_state);
-
-			//Combined the squaring, BPF and Pll for a bit of a time save 
-			pllCombine(pre_Pll_rds, extract_rds, square_coeff,square_state, 1,post_Pll, freq_centered, 240000, 0.5,phase_adj-PI/1.4 , 0.001 , pll_state);
-			// ---------------------Demodulation-mixed----------------------------
-			//Low pass filter combined with mixer
-			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
-
-			//Resampler
-			convolveWithDecimMode1RDS(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
-			
-			//RRC Filter
-			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
-
-			//Push to thread which dedicated to frame sync
-			//Additional thread for frame sync
-			std::unique_lock<std::mutex> frame_lock(frame_mutex);
-			if(frame_queue.size() == QUEUE_BLOCKS-1)
-			{
-				cvarframe.wait(frame_lock);
-			}
-			//Push onto queue 
-			frame_queue.push(rrc_rds);
-			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
-			frame_lock.unlock();
-			cvarframe.notify_one();
-			//Fills these vectors with zeros
-			std::fill(extract_rds.begin(), extract_rds.end(), 0);
-			std::fill(pre_Pll_rds.begin(), pre_Pll_rds.end(), 0);
-			//std::fill(post_Pll.begin(), post_Pll.end(), 0);
-			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
-			std::fill(resample_rds.begin(), resample_rds.end(), 0);
-			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
-			//iterate block id
-			block_id ++;
-
-			//Will keep iterating the block till there is nothing coming in from standard in 
-			if((std::cin.rdstate()) != 0&&rds_queue.empty())
-			{
-				std::cerr<< "Does RDS terminate" << std::endl;
-				break;
-			}
-		}
-	}
-}
-	
 
 
 //Need to get args working
@@ -763,10 +740,8 @@ int main(int argc, char* argv[])
 	std::vector<float> Xmag;
 	std::vector<float> psd_est, freq;
 	std::vector<float> psd_est1, freq1;
-	//
 	std::queue<std::vector<float>> frame_queue;
 	std::mutex frame_mutex;
-	//std::condition_variable cvarframe; 
 	
 	//Creates threads
 	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar),std::ref(cvar1));
