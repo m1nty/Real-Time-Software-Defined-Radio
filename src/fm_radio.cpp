@@ -386,6 +386,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			// ---------------------Carrier Recovery-----------------------------
 			//Combined the squaring, BPF and Pll for a bit of a time save 
+			//Phase_adj was determined by looking at the constalation diagrams. But all of the Quadrature calculation functions were removed to increase run time
 			pllCombine(pre_Pll_rds, extract_rds, square_coeff,square_state, 1,post_Pll, freq_centered, 240000, 0.5,phase_adj-PI/1.4 , 0.001 , pll_state);
 			
 			// ---------------------Demodulation-mixed----------------------------
@@ -393,12 +394,13 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
 
 			//Resampler
+			//Resamples and passes through the anti-imaging filter at the same time
 			convolveWithDecimMode1RDS(resample_rds, lpf_filt_rds, anti_img_coeff,anti_img_state,downsample_val,upsample_val);
 			
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
 
-			//Push to thread which dedicated to frame sync
+			//Push to thread which dedicated to the rest of data processing in RDS
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
 			if(frame_queue.size() == QUEUE_BLOCKS-1)
 			{
@@ -513,14 +515,17 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			}
 
 			//Then figures out what the index will need to be for the next block
-			for(unsigned int j = 0; j < 24; j++)
-			{	
-				//std::cerr << rrc_rds[rrc_rds.size()-24+j] << std::endl;
-				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[symbols_I.size()-1])
-				{
-					initial_offset = 24-j; 
-				}
-			}
+			//NOTE: For some reason, in python this is needed. But we get more syndromes when this is commented out in C++
+			//It makes the constalations look alot nicer in C++ but for some reason we loss all the syndromes in block 1
+			//for(unsigned int j = 0; j < 24; j++)
+			//{	
+			//	//std::cerr << rrc_rds[rrc_rds.size()-24+j] << std::endl;
+			//	if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[symbols_I.size()-1])
+			//	{
+			//		initial_offset = 24-j; 
+			//	}
+			//}
+
 			// ---------------------RDS Data Processing----------------------------
 			//initial screening to determine if we start at bit 0 or 1 when doing manchester decoding
 			if(block_id == 0)
