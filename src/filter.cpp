@@ -363,7 +363,7 @@ void convolveWithDecimSquare(std::vector<float> &y, const std::vector<float> &x,
         }
 	//Assigns next zi value 
 	for(auto i = 0; i < zi.size(); i++){
-		zi[i] = x[x.size()-zi.size()-1+i]; 
+		zi[i] = pow(x[x.size()-zi.size()-1+i],2); 
 	}
 }
 
@@ -394,6 +394,6 @@ void convolveWithDecimAndMixer(std::vector<float> &y, const std::vector<float> &
         }
 	//Assigns next zi value 
 	for(auto i = 0; i < zi.size(); i++){
-		zi[i] = x[x.size()-zi.size()-1+i]; 
+		zi[i] = x[x.size()-zi.size()-1+i]*x1[x.size()-zi.size()-1+i]; 
 	}
 }

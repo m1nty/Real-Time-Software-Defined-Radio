@@ -322,7 +322,8 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 	}
 }
 
-void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe)
+//Thread for frame syncronization
+void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue,std::queue<void *> &rds_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe)
 {
 	if(mode == 0)
 	{
@@ -342,9 +343,14 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue, std::mut
 		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
 		while(true) 
 		{
-			diff_bits.resize(76);
+			//Determines the size of the diff_bits read in 
+			if(block_id == 0)
+				diff_bits.resize(75);
+			else	
+				diff_bits.resize(76);
+
+			//Check for reading in from the queue 
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
-			
 			//Waits until there is something in the queue
 			if(frame_queue.empty())
 			{
@@ -352,16 +358,22 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue, std::mut
 			}
 			//Assigns front of quene to vector
 			diff_bits = frame_queue.front();
+			//std::cerr << "diff_bits size " << diff_bits.size()<<std::endl;
 			//Pops the value of the queue 
 			frame_queue.pop();
 			frame_lock.unlock();
 			cvarframe.notify_one();
+
+			//Prints block Number
+			std::cerr << " " << std::endl;
+			std::cerr << "****************Prcoessing Block: " << block_id<< "****************" << std::endl;
 
 			//Frame Sync
 			//insert remaining bits to front of vector
 			if(block_id != 0){
 				diff_bits.insert(diff_bits.begin(), prev_sync_bits.begin(), prev_sync_bits.end());
 			}
+			//std::cerr << "diff_bits size " << diff_bits.size()<<std::endl;
 			position = 0;
 			while(true){
 				//Creates a block of size 26
@@ -441,8 +453,12 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue, std::mut
 				//std::cerr << prev_sync_bits[g];
 			}
 
-			if((std::cin.rdstate()) != 0&&frame_queue.empty())
+			//Iterate the block ID
+			block_id ++;
+			//Runs until both queues are empty and there is nothing at the standard in 
+			if((std::cin.rdstate()) != 0 && frame_queue.empty()&&rds_queue.empty())
 			{
+				std::cerr<< "Does frame terminate" << std::endl;
 				break;
 			}
 		}
@@ -483,9 +499,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		int upsample_val = 19;
 		int downsample_val = 80;
 		float cutoff_anti_img = 57000/2;
-		//Values for rational resampler
-		float rrc_Fs = 57000; 
-		unsigned int rrc_taps = 151;
 		//Values for clock recovery
 		unsigned int initial_offset = 0; 
 		//Differential decoding 
@@ -533,26 +546,12 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			// ****************************************************************** 
 			// -----------------------RDS Data Processing------------------------ 
 			// ******************************************************************
-			std::cerr << " " << std::endl;
-			std::cerr << "****************Prcoessing Block: " << block_id<< "****************" << std::endl;
 				
 			// ------------------------Extraction--------------------------------
 			// Performs convoloution to extract the data 
 			convolveWithDecimPointer(extract_rds, ptr_block,BLOCK_SIZE/20, extract_RDS_coeff, pre_state_extract, 1.0);
-			//if(block_id == 0)
-			//{
-			//	for(unsigned int i = 0; i < 100; i++)
-			//		std::cerr << extract_rds[i]<<std::endl;
-			//}
 
 			// ---------------------Carrier Recovery-----------------------------
-			//Squares the elements
-			//extract_rds_squared.resize(extract_rds.size());
-			//for(unsigned n = 0; n < extract_rds.size(); n++) 
-			//{
-			//	extract_rds_squared[n] = std::pow(extract_rds[n],2);
-			//}
-			
 			//Combined squaring and Second BPF
 			convolveWithDecimSquare(pre_Pll_rds, extract_rds, square_coeff, square_state, 1);
 			//Pll
@@ -561,14 +560,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/2, 0.001,pll_state);
 
 			// ---------------------Demodulation-mixed----------------------------
-			//mixing 
-			//if(block_id == 0)
-			//	mixed.resize(post_Pll.size());
-			//for(unsigned m = 0; m < post_Pll.size(); m++)
-			//{
-			//	mixed[m] = post_Pll[m] * extract_rds[m]*2;
-			//}
-			
 			//Low pass filter combined with mixer
 			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
 
@@ -597,8 +588,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				std::cerr << "initial offset for clock recovery = " << initial_offset <<std::endl; 
 			}
 			//symbols_I.resize(std::floor((rrc_rds.size())/24));
-			if(block_id == 0)
-				symbols_I.resize((int)((rrc_rds.size())/24));
+			symbols_I.resize((int)((rrc_rds.size())/24));
 			
 			//Gets the symbols from the rrc array 
 			for(unsigned int k=0; k < symbols_I.size();k++)
@@ -614,20 +604,20 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[symbols_I.size()-1])
 				{
 					initial_offset = 24-j; 
-					std::cerr << "Inital offset for block processing " << initial_offset<<std::endl;
+					//std::cerr << "Inital offset for block processing " << initial_offset<<std::endl;
 				}
 			}
 
 			//Plotting to see if RRC and constalations are corrcet 
-			//if(block_id == 1)
-			//{
-			//	std::vector<float> time;
-			//	genIndexVector(time, rrc_rds.size());
-			//	std::cerr << "VectorLog time"<<std::endl;
-			//	logVector("rrc", time, rrc_rds);
-			//	logVector("rrcQ", time, rrc_rds_Q);
-			//	logVector("constalation", symbols_I, symbols_Q);
-			//}
+			if(block_id == 0)
+			{
+				std::vector<float> time;
+				genIndexVector(time, rrc_rds.size());
+				std::cerr << "VectorLog time"<<std::endl;
+				logVector("rrc", time, rrc_rds);
+				//logVector("rrcQ", time, rrc_rds_Q);
+				//logVector("constalation", symbols_I, symbols_Q);
+			}
 			
 			// ---------------------RDS Data Processing----------------------------
 			//initial screening 
@@ -648,10 +638,10 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				else if(count_1_pos > count_0_pos) 
 					start_pos = 0;
 				//std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
-				bit_stream.resize((int)(symbols_I.size()/2)-start_pos);
 			}
 			//Now the recovery 
 			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
+			bit_stream.resize((int)(symbols_I.size()/2)-start_pos,0);
 			
 			//Uses prev bit just in case
 			if(start_pos == 1 && block_id != 0)
@@ -692,31 +682,31 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				offset = 0; 
 			}
 			//Perform XOR on bits
-			diff_bits.resize(bit_stream.size()-offset);
+			diff_bits.resize(bit_stream.size()-offset,0);
 			for(unsigned int t = 0; t< diff_bits.size(); t++)
 			{
 				diff_bits[t] = prebit ^ bit_stream[t+offset];
 				prebit = bit_stream[t+offset];
 			}
 			prebit = bit_stream[bit_stream.size()-1];
+			
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
 
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 
+			//Push to thread which dedicated to frame sync
 			//Additional thread for frame sync
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
 			if(frame_queue.size() == QUEUE_BLOCKS-1)
 			{
 				cvarframe.wait(frame_lock);
 			}
+			//Push onto queue 
 			frame_queue.push(diff_bits);
-
-			block_id ++;
+			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 			frame_lock.unlock();
 			cvarframe.notify_one();
-
-			//Frame Sync
 
 			//Fills these vectors with zeros
 			std::fill(extract_rds.begin(), extract_rds.end(), 0);
@@ -732,6 +722,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//Will keep iterating the block till there is nothing coming in from standard in 
 			if((std::cin.rdstate()) != 0&&rds_queue.empty())
 			{
+				std::cerr<< "Does RDS terminate" << std::endl;
 				break;
 			}
 		}
@@ -796,7 +787,7 @@ int main(int argc, char* argv[])
 	std::thread rf = std::thread(rf_thread, std::ref(mode), std::ref(sync_queue), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar),std::ref(cvar1));
 	std::thread mono_stero = std::thread(mono_stero_thread, std::ref(mode), std::ref(sync_queue), std::ref(radio_mutex), std::ref(cvar));
 	std::thread rds  = std::thread(rds_thread, std::ref(mode), std::ref(rds_queue), std::ref(radio_mutex), std::ref(cvar1),std::ref(frame_queue), std::ref(frame_mutex), std::ref(cvarframe));
-	std::thread frame= std::thread(frame_thread, std::ref(mode), std::ref(frame_queue), std::ref(frame_mutex), std::ref(cvarframe));
+	std::thread frame= std::thread(frame_thread, std::ref(mode), std::ref(frame_queue),std::ref(rds_queue), std::ref(frame_mutex), std::ref(cvarframe));
 
 	//Once all standard in blocks have been read, threads are joined
 	rf.join();
