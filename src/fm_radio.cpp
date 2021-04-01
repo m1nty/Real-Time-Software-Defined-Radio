@@ -15,6 +15,7 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #include <thread>
 #include "helper.h"
 #include <math.h>
+#include <chrono>
 
 #include <iostream> 
 
@@ -111,7 +112,7 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 		}
 		else
 		{
-			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) //|| sync_queue.size() != rds_queue.size())
+			if(sync_queue.size() == QUEUE_BLOCKS-1||rds_queue.size() == QUEUE_BLOCKS-1) 
 			{
 				//std::cerr << "Issue so need to lock" << std::endl;
 				if(sync_queue.size() == QUEUE_BLOCKS-1)
@@ -154,7 +155,6 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &radio_mutex, std::condition_variable &cvar) 
 {
 	//Depending on the mode sets the sampling frequency to the corresponding value
-	int rf_decim = 10;
 	int audio_Fs = 240000;
 	int audio_Fc = 16000;
 	int audio_taps = 151; 
@@ -473,7 +473,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 		//Other vectors
 		std::vector<float> extract_rds,extract_rds_squared,pre_Pll_rds, post_Pll,mixed,lpf_filt_rds, resample_rds, rrc_rds;
 		//Defining constants
-		int num_taps = 51; 
+		int num_taps = 151; 
 		unsigned int block_id = 0;
 		//For first BPF
 		float initial_RDS_lower_freq = 54000;
@@ -552,12 +552,11 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 
 			// ---------------------Carrier Recovery-----------------------------
 			//Combined squaring and Second BPF
-			convolveWithDecimSquare(pre_Pll_rds, extract_rds, square_coeff, square_state, 1);
-			//Pll
-			std::vector<float> post_Pll_Q;
+			//convolveWithDecimSquare(pre_Pll_rds, extract_rds, square_coeff, square_state, 1);
+			////Pll
+			//fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/1.4, 0.001,pll_state);
 
-			fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/2, 0.001,pll_state);
-
+			pllCombine(pre_Pll_rds, extract_rds, square_coeff,square_state, 1,post_Pll, freq_centered, 240000, 0.5,phase_adj-PI/1.4 , 0.001 , pll_state);
 			// ---------------------Demodulation-mixed----------------------------
 			//Low pass filter combined with mixer
 			convolveWithDecimAndMixer(lpf_filt_rds, post_Pll, extract_rds, lpf_coeff_rds, lpf_3k_state, 1);
@@ -623,7 +622,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			if(block_id == 0)
 			{
 				//Loops through small chunck of symbols vector 
-				for(unsigned int j; j < symbols_I.size()/2; j++)
+				for(unsigned int j; j < symbols_I.size()/4; j++)
 				{
 					//Checks for doubles 
 					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
@@ -706,7 +705,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 			frame_lock.unlock();
 			cvarframe.notify_one();
-
 			//Fills these vectors with zeros
 			std::fill(extract_rds.begin(), extract_rds.end(), 0);
 			std::fill(pre_Pll_rds.begin(), pre_Pll_rds.end(), 0);
@@ -714,7 +712,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			std::fill(lpf_filt_rds.begin(), lpf_filt_rds.end(), 0);
 			std::fill(resample_rds.begin(), resample_rds.end(), 0);
 			std::fill(rrc_rds.begin(), rrc_rds.end(), 0);
-
 			//iterate block id
 			block_id ++;
 
@@ -737,6 +734,7 @@ int main(int argc, char* argv[])
 	//Need to improve when start working on mode 0 
 	int mode = 0;
 	//If no input, mode is 0
+	std::cerr << argc <<std::endl;
 	if(argc < 2)
 	{
 		std::cerr << "Operating in mode 0" << std::endl;
