@@ -323,11 +323,22 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 }
 
 //Thread for frame syncronization
-void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue,std::queue<void *> &rds_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe)
+void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::queue<void *> &rds_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe)
 {
 	if(mode == 0)
 	{
-		std::vector<int> diff_bits;
+		unsigned int initial_offset = 0; 
+		//Differential decoding 
+		int count_0_pos =0;
+		int count_1_pos = 0;
+		unsigned int start_pos = 0;
+		float lonely_bit = 0;
+		int front_bit = 0; 
+		int prebit = 0; 
+		unsigned int offset = 0;
+		std::vector<int> bit_stream; 
+		std::vector<int> diff_bits; 
+		std::vector<float> symbols_I;
 		int block_id = 0;
 		unsigned int position = 0;
 		unsigned int printposition = 0; 
@@ -341,13 +352,10 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue,std::queu
 		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
 		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
 		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
+		std::vector<float> rrc_rds;
 		while(true) 
 		{
 			//Determines the size of the diff_bits read in 
-			if(block_id == 0)
-				diff_bits.resize(75);
-			else	
-				diff_bits.resize(76);
 
 			//Check for reading in from the queue 
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
@@ -357,13 +365,118 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue,std::queu
 				cvarframe.wait(frame_lock);
 			}
 			//Assigns front of quene to vector
-			diff_bits = frame_queue.front();
+			rrc_rds = frame_queue.front();
 			//std::cerr << "diff_bits size " << diff_bits.size()<<std::endl;
 			//Pops the value of the queue 
 			frame_queue.pop();
 			frame_lock.unlock();
 			cvarframe.notify_one();
 
+			if(block_id == 0)
+			{
+				//finds the index of the max
+				//float placehold = abs(rrc_rds[0]);
+				float placehold = abs(rrc_rds[0]);
+				for(unsigned int i = 1; i < 24;i++)
+				{
+					if(std::abs(rrc_rds[i]) > placehold)
+					{
+						placehold = std::abs(rrc_rds[i]); 
+						initial_offset = i; 
+					}
+				}
+				std::cerr << "initial offset for clock recovery = " << initial_offset <<std::endl; 
+			}
+			//symbols_I.resize(std::floor((rrc_rds.size())/24));
+			symbols_I.resize((int)((rrc_rds.size())/24));
+			
+			//Gets the symbols from the rrc array 
+			for(unsigned int k=0; k < symbols_I.size();k++)
+			{
+				symbols_I[k] = rrc_rds[24*k+initial_offset];
+				//std::cerr << symbols_I[k] <<std::endl;
+			}
+
+			//Then figures out what the index will need to be for the next block
+			for(unsigned int j = 0; j < 24; j++)
+			{	
+				//std::cerr << rrc_rds[rrc_rds.size()-24+j] << std::endl;
+				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[symbols_I.size()-1])
+				{
+					initial_offset = 24-j; 
+					//std::cerr << "Inital offset for block processing " << initial_offset<<std::endl;
+				}
+			}
+			// ---------------------RDS Data Processing----------------------------
+			//initial screening 
+			if(block_id == 0)
+			{
+				//Loops through small chunck of symbols vector 
+				for(unsigned int j; j < symbols_I.size()/4; j++)
+				{
+					//Checks for doubles 
+					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
+						count_0_pos += 1;
+					else if((symbols_I[2*j+1] > 0 && symbols_I[2*j+2] > 0) || (symbols_I[2*j+1] < 0 && symbols_I[2*j+2]<0))
+						count_1_pos += 1;
+				}
+				//Depending on what start position has more doubles, determine the appropriate start position 
+				if(count_0_pos > count_1_pos)
+					start_pos = 1;
+				else if(count_1_pos > count_0_pos) 
+					start_pos = 0;
+				//std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
+			}
+			//Now the recovery 
+			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
+			bit_stream.resize((int)(symbols_I.size()/2)-start_pos,0);
+			
+			//Uses prev bit just in case
+			if(start_pos == 1 && block_id != 0)
+			{
+				if(lonely_bit > symbols_I[0])
+					front_bit = 1 ;
+				else if(symbols_I[0] > lonely_bit)
+					front_bit = 0;
+			}
+			//Figures out what every bit is
+			for(unsigned int k =0; k<bit_stream.size(); k++) 
+			{
+				if(start_pos+2*k+1 > symbols_I.size()-1)
+					break;
+				if(symbols_I[2*k+start_pos] > symbols_I[2*k+1+start_pos])
+					bit_stream[k] = 1;
+				else if(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos])
+					bit_stream[k] = 0;
+			}
+			//If start pos 1 append bit to front and set value for the bit of the end 
+			if(start_pos == 1) 
+			{
+				bit_stream.insert(bit_stream.begin(), front_bit);
+				lonely_bit = symbols_I[symbols_I.size()-1]; 
+				//std::cerr << bit_stream.size()  << std::endl;
+			}
+			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
+
+			//Differential decoding
+			//Set initial pre bit and offset
+			if(block_id == 0)
+			{
+				prebit = bit_stream[0];
+				offset = 1;
+			}
+			else
+			{
+				offset = 0; 
+			}
+			//Perform XOR on bits
+			diff_bits.resize(bit_stream.size()-offset,0);
+			for(unsigned int t = 0; t< diff_bits.size(); t++)
+			{
+				diff_bits[t] = prebit ^ bit_stream[t+offset];
+				prebit = bit_stream[t+offset];
+			}
+			prebit = bit_stream[bit_stream.size()-1];
 			//Prints block Number
 			std::cerr << " " << std::endl;
 			std::cerr << "****************Prcoessing Block: " << block_id<< "****************" << std::endl;
@@ -464,7 +577,7 @@ void frame_thread(int &mode, std::queue<std::vector<int>> &frame_queue,std::queu
 	}
 }
 //RDS Thread
-void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar, std::queue<std::vector<int>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
+void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mutex, std::condition_variable &cvar, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
 {
 	if(mode == 0)
 	{
@@ -556,6 +669,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			////Pll
 			//fmPLL(post_Pll, pre_Pll_rds, freq_centered, 240e3,0.5,phase_adj-PI/1.4, 0.001,pll_state);
 
+			//Combined the squaring, BPF and Pll for a bit of a time save 
 			pllCombine(pre_Pll_rds, extract_rds, square_coeff,square_state, 1,post_Pll, freq_centered, 240000, 0.5,phase_adj-PI/1.4 , 0.001 , pll_state);
 			// ---------------------Demodulation-mixed----------------------------
 			//Low pass filter combined with mixer
@@ -567,132 +681,6 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 			//RRC Filter
 			convolveWithDecim(rrc_rds, resample_rds, rrc_coeff, rrc_state, 1);
 
-			//Clock and data recovery
-			//Determines where to initially sample 
-			//Determines where to initally sample rate by finding the max of the first 24 samples 
-			if(block_id == 0)
-			{
-				//finds the index of the max
-				//float placehold = abs(rrc_rds[0]);
-				float placehold = abs(rrc_rds[0]);
-				for(unsigned int i = 1; i < 24;i++)
-				{
-					if(std::abs(rrc_rds[i]) > placehold)
-					{
-						placehold = std::abs(rrc_rds[i]); 
-						initial_offset = i; 
-					}
-				}
-				std::cerr << "initial offset for clock recovery = " << initial_offset <<std::endl; 
-			}
-			//symbols_I.resize(std::floor((rrc_rds.size())/24));
-			symbols_I.resize((int)((rrc_rds.size())/24));
-			
-			//Gets the symbols from the rrc array 
-			for(unsigned int k=0; k < symbols_I.size();k++)
-			{
-				symbols_I[k] = rrc_rds[24*k+initial_offset];
-				//std::cerr << symbols_I[k] <<std::endl;
-			}
-
-			//Then figures out what the index will need to be for the next block
-			for(unsigned int j = 0; j < 24; j++)
-			{	
-				//std::cerr << rrc_rds[rrc_rds.size()-24+j] << std::endl;
-				if(rrc_rds[rrc_rds.size()-24+j] == symbols_I[symbols_I.size()-1])
-				{
-					initial_offset = 24-j; 
-					//std::cerr << "Inital offset for block processing " << initial_offset<<std::endl;
-				}
-			}
-
-			//Plotting to see if RRC and constalations are corrcet 
-			if(block_id == 0)
-			{
-				std::vector<float> time;
-				genIndexVector(time, rrc_rds.size());
-				std::cerr << "VectorLog time"<<std::endl;
-				logVector("rrc", time, rrc_rds);
-				//logVector("rrcQ", time, rrc_rds_Q);
-				//logVector("constalation", symbols_I, symbols_Q);
-			}
-			
-			// ---------------------RDS Data Processing----------------------------
-			//initial screening 
-			if(block_id == 0)
-			{
-				//Loops through small chunck of symbols vector 
-				for(unsigned int j; j < symbols_I.size()/4; j++)
-				{
-					//Checks for doubles 
-					if((symbols_I[2*j] > 0 && symbols_I[2*j+1] > 0) || (symbols_I[2*j] < 0 && symbols_I[2*j+1]<0))
-						count_0_pos += 1;
-					else if((symbols_I[2*j+1] > 0 && symbols_I[2*j+2] > 0) || (symbols_I[2*j+1] < 0 && symbols_I[2*j+2]<0))
-						count_1_pos += 1;
-				}
-				//Depending on what start position has more doubles, determine the appropriate start position 
-				if(count_0_pos > count_1_pos)
-					start_pos = 1;
-				else if(count_1_pos > count_0_pos) 
-					start_pos = 0;
-				//std::cerr << "Doubles when start pos is 0="<< count_0_pos << " Doubles when start pos is 1="<<count_1_pos << std::endl;
-			}
-			//Now the recovery 
-			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
-			bit_stream.resize((int)(symbols_I.size()/2)-start_pos,0);
-			
-			//Uses prev bit just in case
-			if(start_pos == 1 && block_id != 0)
-			{
-				if(lonely_bit > symbols_I[0])
-					front_bit = 1 ;
-				else if(symbols_I[0] > lonely_bit)
-					front_bit = 0;
-			}
-			//Figures out what every bit is
-			for(unsigned int k =0; k<bit_stream.size(); k++) 
-			{
-				if(start_pos+2*k+1 > symbols_I.size()-1)
-					break;
-				if(symbols_I[2*k+start_pos] > symbols_I[2*k+1+start_pos])
-					bit_stream[k] = 1;
-				else if(symbols_I[2*k+start_pos] < symbols_I[2*k+1+start_pos])
-					bit_stream[k] = 0;
-			}
-			//If start pos 1 append bit to front and set value for the bit of the end 
-			if(start_pos == 1) 
-			{
-				bit_stream.insert(bit_stream.begin(), front_bit);
-				lonely_bit = symbols_I[symbols_I.size()-1]; 
-				//std::cerr << bit_stream.size()  << std::endl;
-			}
-			//std::cerr << "Size of bit_stream = " << bit_stream.size() <<std::endl; 
-
-			//Differential decoding
-			//Set initial pre bit and offset
-			if(block_id == 0)
-			{
-				prebit = bit_stream[0];
-				offset = 1;
-			}
-			else
-			{
-				offset = 0; 
-			}
-			//Perform XOR on bits
-			diff_bits.resize(bit_stream.size()-offset,0);
-			for(unsigned int t = 0; t< diff_bits.size(); t++)
-			{
-				diff_bits[t] = prebit ^ bit_stream[t+offset];
-				prebit = bit_stream[t+offset];
-			}
-			prebit = bit_stream[bit_stream.size()-1];
-			
-			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
-			//std::cerr << "Size of bitstream = " << bit_stream.size() <<std::endl; 
-
-			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
-
 			//Push to thread which dedicated to frame sync
 			//Additional thread for frame sync
 			std::unique_lock<std::mutex> frame_lock(frame_mutex);
@@ -701,7 +689,7 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &radio_mute
 				cvarframe.wait(frame_lock);
 			}
 			//Push onto queue 
-			frame_queue.push(diff_bits);
+			frame_queue.push(rrc_rds);
 			//std::cerr << "Size of diff_bits = " << diff_bits.size() <<std::endl; 
 			frame_lock.unlock();
 			cvarframe.notify_one();
@@ -776,7 +764,7 @@ int main(int argc, char* argv[])
 	std::vector<float> psd_est, freq;
 	std::vector<float> psd_est1, freq1;
 	//
-	std::queue<std::vector<int>> frame_queue;
+	std::queue<std::vector<float>> frame_queue;
 	std::mutex frame_mutex;
 	//std::condition_variable cvarframe; 
 	
