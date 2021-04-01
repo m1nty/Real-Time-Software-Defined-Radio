@@ -1,0 +1,56 @@
+#Python Block Convolution Function
+#Similar function can be found in model/fmSupportLib.py
+#This function was corrected shortly after the Lab 1 feedback was given and was pushed to Lab 1 branch
+#This function has been verified by replacing library functions during the Mono/Stereo Python Implementations
+#Validation was done by examining plots and resultant audio
+
+def blockConvolution(x, h, state_in):
+	M = len(x)
+	N = len(h)
+	Z = len(state_in)
+	y = np.zeros(M)
+	for n in range(M):
+		counter = 0
+		for k in range(N):
+			if n-k >= 0 and n-k <M:
+				y[n] += x[n-k]*h[k]
+			else:
+				y[n] += state_in[Z-1-counter]*h[k]
+				counter += 1
+	state_out = x[-Z:]
+	return y, state_out
+
+
+
+//C++ Block Convolution Function
+//Similar function can be found in src/filter.cpp
+//This function was corrected shortly after the Lab 2 feedback was given and was pushed to Lab 2 branch
+//This function has been verified during the Mono Mode 0 C++ Implementation
+//This function was then replaced by convolvewithDecim which can be found in the same folder
+//Replacement done so downsampling within same function as convolution for optimization purposes
+//Validation was done by examining PSD's and resultant audio
+void blockConvolution(std::vector<float> &y, const std::vector<float> &x, const std::vector<float> &h, std::vector<float> &state)
+{
+	M = x.size();
+	N = h.size();
+	Z = state.size()
+	y.resize(M+N-1, 0.0);
+	Y = y.size()
+        int count;
+
+        for (auto n = 0; n < Y; n++){
+                count = 0;
+                for (auto k = 0; k < N; k++){
+			if((n-k >= 0) && (n-k < M)){
+                                y[n] += x[n-k]*h[k];
+			}
+			else{
+                                y[n] += state[Z-1-count]*h[k];
+				count += 1;
+			}
+                }
+        } 
+	for(auto i = 0; i < Z; i++){
+		state[i] = x[M-Z-1+i]; 
+	}
+}
