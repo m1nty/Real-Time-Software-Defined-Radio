@@ -23,9 +23,9 @@ Comp Eng 3DY4 (Computer Systems Integration Project)
 #define BLOCK_SIZE 307200 
 
 //CURRENT ISSUES WHEN SUBMITTING 
-//RDS keeps dropping block. We think it is due to the clock recovery in block processing, but we were never able to fully figure it out. It just seems like block drop off the face of the earth
-//RDS is not fully optimized due to time. Because of this, the audio is choppy because it does not fill up its queue fast enough and everyone lags behind. To hear just stero and audio please look at the document
-//Which shows the previous commit where this is availible
+//RDS keeps dropping blocks. We think it is due to the clock recovery in block processing, but we were never able to fully figure it out. It just seems like block drop off the face of the earth
+//RDS is not fully optimized due to time. Because of this, the audio can be choppy (depending on your device) because it does not fill up its queue fast enough and everyone lags behind. 
+//To hear just stero and audio please look at the document which shows the previous commit where this is availible
 
 //Rf thread where IQ samples read in from rf dongle. This is where they are filtered and demodulated 
 void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds_queue, std::mutex &radio_mutex,std::mutex &rds_mutex, std::condition_variable &cvar,std::condition_variable &cvar1) 
@@ -113,9 +113,13 @@ void rf_thread(int &mode, std::queue<void *> &sync_queue,std::queue<void *> &rds
 			std::unique_lock<std::mutex> queue1_lock(rds_mutex);
 				//std::cerr << "Issue so need to lock" << std::endl;
 			if(sync_queue.size() == QUEUE_BLOCKS-1)
+			{
 				cvar.wait(queue_lock);
+			}
 			if(rds_queue.size() == QUEUE_BLOCKS-1)
+			{
 				cvar1.wait(queue1_lock);
+			}
 			//push pointers to address onto queue 
 			sync_queue.push((void *)&queue_block[queue_entry][0]);
 			rds_queue.push((void *)&queue_block[queue_entry][0]);
@@ -314,7 +318,7 @@ void mono_stero_thread(int &mode, std::queue<void *> &sync_queue, std::mutex &ra
 }
 
 //Inital RDS Thread which does all of the filtering
-void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &rds_mutex, std::condition_variable &cvar, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
+void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &rds_mutex, std::condition_variable &cvar1, std::queue<std::vector<float>> &frame_queue, std::mutex &frame_mutex, std::condition_variable &cvarframe) 
 {
 	//Will only perform these process if in mode 0 
 	if(mode == 0)
@@ -369,18 +373,18 @@ void rds_thread(int &mode, std::queue<void *> &rds_queue, std::mutex &rds_mutex,
 		while(true)
 		{
 			//Creates lock
-			std::unique_lock<std::mutex> queue_lock(rds_mutex);
+			std::unique_lock<std::mutex> queue1_lock(rds_mutex);
 			//Waits until there is something in the queue
 			if(rds_queue.empty())
 			{
-				cvar.wait(queue_lock);
+				cvar1.wait(queue1_lock);
 			}
 			//Assigns front of quene to vector
 			float *ptr_block = (float *)rds_queue.front();
-			//Pops the value of the queue 
+			//Pops the value of the queue
 			rds_queue.pop();
-			queue_lock.unlock();
-			cvar.notify_one();
+			queue1_lock.unlock();
+			cvar1.notify_one();
 
 			// ****************************************************************** 
 			// -----------------------RDS Data Processing------------------------ 
@@ -461,6 +465,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 		std::vector<int> diff_bits; 
 		std::vector<float> symbols_I;
 		std::vector<int> potential_syndrome,block,prev_sync_bits;
+		//Resize the vector 
 		potential_syndrome.resize(10);
 		block.resize(26);
 		prev_sync_bits.resize(27);
@@ -475,7 +480,7 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 		std::vector<int> syndrome_B {1,1,1,1,0,1,0,1,0,0};
 		std::vector<int> syndrome_C {1,0,0,1,0,1,1,1,0,0};
 		std::vector<int> syndrome_D {1,0,0,1,0,1,1,0,0,0};
-		//
+		//For sync
 		int bad_sync_count = 0;
 		//Loop in which all of the processes take place 
 		while(true) 
@@ -489,7 +494,6 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 			}
 			//Assigns front of quene to vector
 			rrc_rds = frame_queue.front();
-			//std::cerr << "diff_bits size " << diff_bits.size()<<std::endl;
 			//Pops the value of the queue 
 			frame_queue.pop();
 			frame_lock.unlock();
@@ -693,15 +697,16 @@ void frame_thread(int &mode, std::queue<std::vector<float>> &frame_queue,std::qu
 				//Check if resync needed 
 				//Will then start counting syndromes again once this is reset. 
 				if(bad_sync_count>10)
+				{
+					std::cerr << "~~~~~Re-Sync~~~~~" <<std::endl;
+					bad_sync_count = 0;
 					last_position = -1;
-
+				}
 				//Breaks once it reaches the end
 				//Iterate the posiition variabel
 				position += 1;
 				if(position+26 > diff_bits.size()-1)
 				{
-					//std::cerr<< "Size of diff_bit = " << diff_bits.size() << std::endl; 
-					//std::cerr <<"Position left at " << position << std::endl;
 					break;
 				}
 				printposition+=1;
